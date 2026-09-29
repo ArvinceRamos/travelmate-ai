@@ -96,11 +96,14 @@ The current backend remains a Firebase Function for local emulation. Moving it t
 
 <!-- Replace these placeholders with current screenshots before publishing. -->
 
-![Travelmate AI chat](docs/screenshots/chat.png)
+![Travelmate AI chat](<img width="1913" height="909" alt="chat travelmate" src="https://github.com/user-attachments/assets/d10bcc69-56f9-4fbc-a09f-a84d73c633a2" />
+)
 
-![Travelmate AI map](docs/screenshots/map.png)
+![Travelmate AI map](<img width="1917" height="909" alt="viewmaps travelmate" src="https://github.com/user-attachments/assets/c46f1a1a-df8d-4cf3-a549-480d98120a71" />
+)
 
-![Travelmate AI itinerary](docs/screenshots/itinerary.png)
+![Travelmate AI itinerary](<img width="1917" height="910" alt="saved itinerary" src="https://github.com/user-attachments/assets/66c4bad0-5581-4473-9a6b-d1b2ecf9086c" />
+)
 
 ## Known Limitations
 
