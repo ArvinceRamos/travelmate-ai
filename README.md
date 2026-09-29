@@ -96,14 +96,46 @@ The current backend remains a Firebase Function for local emulation. Moving it t
 
 <!-- Replace these placeholders with current screenshots before publishing. -->
 
-![Travelmate AI chat](<img width="1913" height="909" alt="chat travelmate" src="https://github.com/user-attachments/assets/d10bcc69-56f9-4fbc-a09f-a84d73c633a2" />
-)
+## Screenshots
 
-![Travelmate AI map](<img width="1917" height="909" alt="viewmaps travelmate" src="https://github.com/user-attachments/assets/c46f1a1a-df8d-4cf3-a549-480d98120a71" />
-)
-
-![Travelmate AI itinerary](<img width="1917" height="910" alt="saved itinerary" src="https://github.com/user-attachments/assets/66c4bad0-5581-4473-9a6b-d1b2ecf9086c" />
-)
+<table>
+  <tr>
+    <td align="center">
+      <img src="images/landing%20travelmate.png" width="400" alt="TravelMate AI Landing Page">
+      <br>
+      <b>Landing Page</b>
+    </td>
+    <td align="center">
+      <img src="images/chat%20travelmate.png" width="400" alt="TravelMate AI Chat">
+      <br>
+      <b>AI Chat</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="images/viewmaps%20travelmate.png" width="400" alt="TravelMate AI Maps">
+      <br>
+      <b>Maps</b>
+    </td>
+    <td align="center">
+      <img src="images/saved%20itinerary.png" width="400" alt="TravelMate AI Saved Itinerary">
+      <br>
+      <b>Saved Itinerary</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="images/notifications.png" width="400" alt="TravelMate AI Notifications">
+      <br>
+      <b>Notifications</b>
+    </td>
+    <td align="center">
+      <img src="images/settings.png" width="400" alt="TravelMate AI Settings">
+      <br>
+      <b>Settings</b>
+    </td>
+  </tr>
+</table>
 
 ## Known Limitations
 
