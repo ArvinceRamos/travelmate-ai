@@ -1279,7 +1279,7 @@ exports.api = onRequest(
     region: "asia-southeast1",
     timeoutSeconds: 120,
     memory: "512MiB",
-    secrets: ["GEMINI_API_KEY"],
+    secrets: ["GEMINI_API_KEY", "OPENAI_API_KEY"],
   },
   app
 );

@@ -10,11 +10,13 @@ class AIProviderError extends Error {
 }
 
 function providerDefaultBase(provider) {
+  if (provider === "openai") return "https://api.openai.com/v1";
   if (provider === "gemini") return "https://generativelanguage.googleapis.com/v1beta";
   return "http://127.0.0.1:11434";
 }
 
 function providerDefaultModel(provider) {
+  if (provider === "openai") return "gpt-4o-mini";
   if (provider === "gemini") return "gemini-2.5-flash";
   return "qwen2.5:7b";
 }
@@ -30,7 +32,11 @@ function settingsFor(provider, fallback = false) {
   const model = String(
     process.env[`${prefix}MODEL`] || (fallback ? "" : process.env.AI_MODEL) || providerDefaultModel(selected)
   ).trim();
-  const apiKey = selected === "gemini" ? process.env.GEMINI_API_KEY || "" : "";
+  const apiKey = selected === "openai"
+    ? process.env.OPENAI_API_KEY || ""
+    : selected === "gemini"
+      ? process.env.GEMINI_API_KEY || ""
+      : "";
   return { provider: selected, baseUrl, model, apiKey };
 }
 
@@ -85,7 +91,23 @@ async function requestCompletion(settings, request) {
   }
 
   let content;
-  if (provider === "gemini") {
+  if (provider === "openai") {
+    const data = await fetchProvider(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: request.messages,
+        temperature: request.temperature,
+        max_completion_tokens: request.max_completion_tokens,
+        ...(responseFormat ? { response_format: responseFormat } : {}),
+      }),
+    });
+    content = data?.choices?.[0]?.message?.content;
+  } else if (provider === "gemini") {
     const system = request.messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
     const contents = request.messages.filter((message) => message.role !== "system").map((message) => ({
       role: message.role === "assistant" ? "model" : "user",

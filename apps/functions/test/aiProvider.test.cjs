@@ -6,7 +6,7 @@ const { getAIClient } = require("../src/services/aiProvider.service");
 
 const validJson = JSON.stringify({ ok: true, count: 2 });
 
-for (const provider of ["gemini", "ollama"]) {
+for (const provider of ["openai", "gemini", "ollama"]) {
   test(`${provider} requests JSON mode and returns validated JSON`, async () => {
     const old = { ...process.env };
     const originalFetch = global.fetch;
@@ -14,11 +14,14 @@ for (const provider of ["gemini", "ollama"]) {
     process.env.AI_MODEL = "test-model";
     process.env.AI_BASE_URL = "https://provider.test";
     process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
     let requestBody;
     global.fetch = async (url, options) => {
       requestBody = { url: String(url), body: JSON.parse(options.body) };
       const payload = provider === "gemini"
         ? { candidates: [{ content: { parts: [{ text: validJson }] } }] }
+        : provider === "openai"
+          ? { choices: [{ message: { content: validJson } }] }
         : { message: { content: validJson } };
       return new Response(JSON.stringify(payload), { status: 200 });
     };
@@ -31,6 +34,10 @@ for (const provider of ["gemini", "ollama"]) {
       });
       assert.deepEqual(JSON.parse(result.choices[0].message.content), { ok: true, count: 2 });
       if (provider === "gemini") assert.equal(requestBody.body.generationConfig.responseMimeType, "application/json");
+      if (provider === "openai") {
+        assert.equal(requestBody.url, "https://provider.test/chat/completions");
+        assert.equal(requestBody.body.response_format.type, "json_object");
+      }
       if (provider === "ollama") assert.equal(requestBody.body.format, "json");
     } finally {
       global.fetch = originalFetch;
@@ -65,15 +72,18 @@ test("AI providers preserve json_schema requests and validate their JSON respons
   const old = { ...process.env };
   const originalFetch = global.fetch;
   const schema = { type: "object", required: ["ok"], properties: { ok: { type: "boolean" } } };
-  for (const provider of ["gemini", "ollama"]) {
+  for (const provider of ["openai", "gemini", "ollama"]) {
     process.env.AI_PROVIDER = provider;
     process.env.AI_BASE_URL = "https://provider.test";
     process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
     let sent;
     global.fetch = async (_url, options) => {
       sent = JSON.parse(options.body);
       const payload = provider === "gemini"
         ? { candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }
+        : provider === "openai"
+          ? { choices: [{ message: { content: '{"ok":true}' } }] }
         : { message: { content: '{"ok":true}' } };
       return new Response(JSON.stringify(payload), { status: 200 });
     };
@@ -84,11 +94,51 @@ test("AI providers preserve json_schema requests and validate their JSON respons
       });
       assert.deepEqual(JSON.parse(result.choices[0].message.content), { ok: true });
       if (provider === "gemini") assert.equal(sent.generationConfig.responseMimeType, "application/json");
+      if (provider === "openai") {
+        assert.equal(sent.response_format.type, "json_schema");
+        assert.deepEqual(sent.response_format.json_schema.schema, schema);
+      }
       if (provider === "ollama") assert.deepEqual(sent.format, schema);
     } finally {
       global.fetch = originalFetch;
       for (const key of Object.keys(process.env)) if (!(key in old)) delete process.env[key];
       Object.assign(process.env, old);
     }
+  }
+});
+
+test("OpenAI quota errors fall back to Gemini using backend-only provider credentials", async () => {
+  const old = { ...process.env };
+  const originalFetch = global.fetch;
+  process.env.AI_PROVIDER = "openai";
+  process.env.AI_MODEL = "gpt-4o-mini";
+  process.env.OPENAI_API_KEY = "server-openai-test-key";
+  process.env.AI_FALLBACK_PROVIDER = "gemini";
+  process.env.GEMINI_API_KEY = "server-gemini-test-key";
+  const seen = [];
+  global.fetch = async (url, options) => {
+    seen.push({ url: String(url), headers: options.headers });
+    if (String(url).includes("api.openai.com")) {
+      return new Response(JSON.stringify({ error: { message: "Insufficient quota" } }), {
+        status: 429,
+        headers: { "Retry-After": "7" },
+      });
+    }
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "Free fallback reply" }] } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await getAIClient().chat.completions.create({
+      messages: [{ role: "user", content: "Plan a trip" }],
+    });
+    assert.equal(result.choices[0].message.content, "Free fallback reply");
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].headers.Authorization, "Bearer server-openai-test-key");
+    assert.match(seen[1].url, /generativelanguage\.googleapis\.com/);
+    assert.ok(seen[1].url.includes("key=server-gemini-test-key"));
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of Object.keys(process.env)) if (!(key in old)) delete process.env[key];
+    Object.assign(process.env, old);
   }
 });

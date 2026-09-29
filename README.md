@@ -9,7 +9,7 @@ Travelmate AI is a travel-planning app with chat-based itinerary planning, saved
 - Node.js 20 Cloud Functions API
 - Photon place search, Nominatim reverse geocoding, Overpass nearby places, and OSRM routing
 - Open-Meteo weather
-- Configurable AI provider: Ollama locally, or Gemini with a server-side key
+- Configurable AI providers: Ollama locally, OpenAI with API credits, and Gemini as an optional free-tier fallback
 
 ## Local Setup
 
@@ -59,11 +59,18 @@ The demo project ID prevents accidental access to live Firebase resources. The F
 
 ## Optional Hosted AI
 
-Ollama is the no-key default. For a hosted demo, choose one hosted provider in `apps/functions/.env` and keep its key out of the frontend:
+Ollama is the no-key default. For a paid-primary setup with an automatic free-provider fallback, set these backend-only values in `apps/functions/.env` (or the backend host's secret manager):
 
-- **Gemini:** create a key in [Google AI Studio](https://aistudio.google.com/app/apikey), set `AI_PROVIDER=gemini`, `AI_MODEL=gemini-2.5-flash`, and `GEMINI_API_KEY=...`. Free-tier quotas are model/project-specific and shown in AI Studio; they are not guaranteed. Keep billing disabled for the no-billing hosted demo. The backend limits chat to 10 requests/minute per IP and honors provider `Retry-After` responses.
+```dotenv
+AI_PROVIDER=openai
+AI_MODEL=gpt-4o-mini
+OPENAI_API_KEY=your-openai-api-key
+AI_FALLBACK_PROVIDER=gemini
+AI_FALLBACK_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=your-gemini-api-key
+```
 
-Optional fallback configuration is available through `AI_FALLBACK_PROVIDER`, `AI_FALLBACK_MODEL`, and `AI_FALLBACK_BASE_URL`. Fallbacks are only attempted after primary-provider errors. Never put the Gemini key in a `VITE_*` variable.
+Create the OpenAI key in the [API Platform](https://platform.openai.com/api-keys) and monitor its API balance and spend limits. ChatGPT/Codex credits are separate from API credit. OpenAI is attempted first; on provider errors (including exhausted credit or rate limiting), the backend attempts Gemini. Create the Gemini key in [Google AI Studio](https://aistudio.google.com/app/apikey); its free-tier model quota varies by project/model and is not guaranteed. The backend limits chat to 10 requests/minute per IP and propagates provider `Retry-After` when the request cannot be served. Keep both keys server-side; never put them in `VITE_*` variables. Keep Ollama as `AI_PROVIDER=ollama` for the completely local, no-key path.
 
 ## Free Data Services
 
