@@ -1,0 +1,110 @@
+/* LoggedOut.css
+   Uses your existing tokens from :root in globals.css:
+   --bg, --surface, --text, --muted, --border, --btn, --btnText, --r-lg, --shadow-sm, --shadow-md
+*/
+
+.tm-loggedOut {
+  /* Use min-height (not height) so it still centers even if parent containers don't stretch */
+  min-height: calc(100dvh - 64px); /* matches your topbar height */
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 28px 22px;
+}
+
+.tm-loggedOutCard {
+  width: min(720px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 26px;
+  margin-top: 18px; /* keeps it visually aligned below the topbar */
+}
+
+.tm-loggedOutTitle {
+  font-size: 34px;
+  line-height: 1.08;
+  margin: 0 0 10px;
+}
+
+.tm-loggedOutSub {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+  max-width: 640px;
+}
+
+.tm-loggedOutActions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+/* Primary pill button to match your app */
+.tm-loggedOutPrimaryBtn {
+  appearance: none;
+  border: 1px solid rgba(0, 250, 154, 0.45);
+  background: var(--btn);
+  color: var(--btnText);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.06s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.tm-loggedOutPrimaryBtn:hover {
+  box-shadow: var(--shadow-md);
+  filter: brightness(1.02);
+}
+
+.tm-loggedOutPrimaryBtn:active {
+  transform: translateY(1px);
+}
+
+.tm-loggedOutPrimaryBtn,
+.tm-loggedOutSecondaryBtn,
+.tm-loggedOutGhostBtn {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.tm-loggedOutPrimaryBtn {
+  background: #12e58b;
+  color: #0f172a;
+  box-shadow: 0 8px 20px rgba(18, 229, 139, 0.22);
+}
+
+.tm-loggedOutPrimaryBtn:hover {
+  transform: translateY(-1px);
+}
+
+.tm-loggedOutSecondaryBtn {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #d7dde5;
+}
+
+.tm-loggedOutSecondaryBtn:hover {
+  background: #f8fafc;
+}
+
+.tm-loggedOutGhostBtn {
+  background: transparent;
+  color: #475569;
+  border: 1px solid #d7dde5;
+}
+
+.tm-loggedOutGhostBtn:hover {
+  background: #f8fafc;
+}

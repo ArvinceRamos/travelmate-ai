@@ -1,0 +1,11 @@
+/* Ads - light theme */
+
+.tm-adBanner,
+.tm-adCard {
+  border: 1px solid var(--border);
+  background: rgba(250, 247, 246, 0.90);
+  border-radius: var(--radius);
+  box-shadow: var(--shadowSoft);
+  padding: 12px 14px;
+  color: var(--text);
+}

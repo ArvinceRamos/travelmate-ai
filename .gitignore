@@ -1,0 +1,33 @@
+node_modules
+*.zip
+apps/functions/src/.claude/
+
+# Local environment files; keep example templates versioned
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Generated frontend bundles can embed keys or stale configuration
+**/dist/
+
+# Local logs and debug payloads
+*.log
+apps/functions/logs.txt
+apps/functions/travelmate-debug-logs.txt
+
+# Firebase
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+pubsub-debug.log
+.firebase/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Smoke-test artifacts
+test.mp3
+test*.wav

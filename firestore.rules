@@ -1,0 +1,173 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ⚠️ Top-level allow REMOVED.
+    // The previous rule "allow read, write: if request.auth == null ..." was a
+    // serious security hole — it granted ALL access to unauthenticated
+    // requests OR to any federated-sign-in user. The Admin SDK never goes
+    // through security rules at all (it bypasses them by design), so no
+    // top-level allow is needed for backend workers.
+    //
+    // Per-collection rules below now exclusively control access.
+    
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Basic type guards
+    function isString(x) { return x is string; }
+    function isBool(x) { return x is bool; }
+    function isNumber(x) { return x is number; }
+
+    // Validate a notification doc written by client
+    function validClientNotificationCreate() {
+      // Required keys we expect the client to set
+      return request.resource.data.keys().hasAll([
+        "sourceItineraryId",
+        "itineraryId",
+        "title",
+        "body",
+        "label",
+        "type",
+        "whenMs",
+        "scheduledDateTimeMs",
+        "read",
+        "done",
+        "deleted",
+        "createdAtMs",
+        "updatedAtMs"
+      ])
+      // Allow only these keys (prevents random extra fields)
+      && request.resource.data.keys().hasOnly([
+        "sourceItineraryId",
+        "itineraryId",
+        "title",
+        "body",
+        "label",
+        "type",
+        "whenMs",
+        "scheduledDateTimeMs",
+        "timeLabel",
+        "endLabel",
+        "dayNum",
+        "daysLabel",
+        "createdAtMs",
+        "updatedAtMs",
+        "read",
+        "readAtMs",
+        "done",
+        "doneAtMs",
+        "deleted",
+        "deletedAtMs"
+      ])
+
+      // Type checks
+      && isString(request.resource.data.sourceItineraryId)
+      && isString(request.resource.data.itineraryId)
+      && isString(request.resource.data.title)
+      && isString(request.resource.data.body)
+      && isString(request.resource.data.label)
+      && isString(request.resource.data.type)
+
+      && isNumber(request.resource.data.whenMs)
+      && isNumber(request.resource.data.scheduledDateTimeMs)
+      && isNumber(request.resource.data.createdAtMs)
+      && isNumber(request.resource.data.updatedAtMs)
+
+      // Initial state must be clean
+      && isBool(request.resource.data.read) && request.resource.data.read == false
+      && isBool(request.resource.data.done) && request.resource.data.done == false
+      && isBool(request.resource.data.deleted) && request.resource.data.deleted == false
+
+      // Optional fields: validate if present
+      && (!("timeLabel" in request.resource.data) || isString(request.resource.data.timeLabel))
+      && (!("endLabel" in request.resource.data) || isString(request.resource.data.endLabel))
+      && (!("daysLabel" in request.resource.data) || isString(request.resource.data.daysLabel))
+      && (!("dayNum" in request.resource.data) || isNumber(request.resource.data.dayNum));
+    }
+
+    // -----------------------------
+    // CHATS
+    // -----------------------------
+    match /chats/{chatId} {
+
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid;
+
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow read, write: if signedIn()
+          && exists(/databases/$(database)/documents/chats/$(chatId))
+          && get(/databases/$(database)/documents/chats/$(chatId)).data.uid == request.auth.uid;
+      }
+    }
+
+    // -----------------------------
+    // ITINERARIES
+    // -----------------------------
+    match /itineraries/{itineraryId} {
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow read, update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // -----------------------------
+    // USER SPACE (Notifications + Settings)
+    // Root doc: users/{uid}
+    // -----------------------------
+    match /users/{uid} {
+
+      allow read, create, update, delete: if isOwner(uid);
+
+      match /reminderSources/{itineraryId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /pushTokens/{tokenId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // ✅ notifications feed:
+      // Allow:
+      // - read: owner
+      // - create: owner (but only with strict schema + safe defaults)
+      // - update: owner (only read/done/deleted flags + timestamps)
+      // Block:
+      // - delete: client (use soft delete)
+      match /notifications/{notifId} {
+        allow read: if isOwner(uid);
+
+        // ✅ Client can create only well-formed notification docs
+        allow create: if isOwner(uid) && validClientNotificationCreate();
+
+        // ✅ Minimal user actions from client (mark read/done/soft-delete)
+        allow update: if isOwner(uid)
+          && request.resource.data.diff(resource.data).changedKeys()
+            .hasOnly([
+              "read", "readAtMs",
+              "done", "doneAtMs",
+              "deleted", "deletedAtMs",
+              "updatedAtMs"
+            ]);
+
+        // keep delete blocked (soft-delete instead)
+        allow delete: if false;
+      }
+
+      match /scheduledReminders/{reminderId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+  }
+}

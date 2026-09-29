@@ -1,0 +1,365 @@
+/* apps/web/src/styles/layout.css */
+
+.app {
+  display: flex;
+  width: 100%;
+  min-height: 100dvh;
+  height: 100dvh;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  padding: 18px 22px max(18px, env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
+}
+
+.content:has(.tm-mapPage) {
+  padding: 0;
+}
+
+.content:has(.tm-mapPage) > * {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.content:has(.tm-chatPage) {
+  justify-content: stretch;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+.content > * {
+  width: 100%;
+  max-width: 1240px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.content:has(.tm-chatPage) > * {
+  max-width: none;
+}
+
+.content > .tm-pageFull {
+  max-width: 1440px;
+}
+
+.tm-topbar {
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-wrap: nowrap;
+  overflow: hidden;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 100%;
+  position: relative;
+  z-index: 10;
+}
+
+.tm-topbar * {
+  line-height: normal;
+}
+
+.tm-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.tm-topbar__right {
+  height: 72px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.tm-topbarCollapsedBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.tm-topbarBrandText {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tm-topbar__right button {
+  white-space: nowrap;
+}
+
+.tm-collapsedBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.tm-collapsedBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.tm-logoIcon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.tm-brandText {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tm-brand__name {
+  font-size: 18px;
+}
+
+.tm-brand__ai {
+  font-size: 18px;
+  color: #00fa9a;
+}
+
+.tm-sidebarToggleBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  transition: all 0.2s ease;
+  color: var(--text);
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.tm-sidebarToggleBtn:hover {
+  background: rgba(0, 250, 154, 0.1);
+  border-color: rgba(0, 250, 154, 0.5);
+}
+
+.tm-authBtns {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.tm-sidebarClosed .tm-topbar__left {
+  padding-left: 0;
+}
+
+.tm-sidebarClosed .content {
+  width: 100%;
+}
+
+.tm-brandBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: 14px;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tm-brandBtn:hover {
+  background: rgba(0, 250, 154, 0.10);
+}
+
+.tm-brandBtn:active {
+  transform: translateY(0.5px);
+}
+
+.tm-sidebarToggleBtn--active {
+  background: rgba(0, 250, 154, 0.12);
+  border-color: rgba(0, 250, 154, 0.60);
+}
+
+.tm-sidebarBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: rgba(15, 23, 42, 0.56);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .app {
+    overflow-x: hidden;
+  }
+
+  .content {
+    padding: 10px 10px max(10px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .tm-topbar {
+    height: auto;
+    min-height: 72px;
+    max-height: none;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "left right";
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 10px;
+    flex-wrap: nowrap;
+    overflow: visible;
+  }
+
+  .tm-topbar__left,
+  .tm-topbar__right {
+    width: auto;
+    height: auto;
+    min-width: 0;
+  }
+
+  .tm-topbar__left {
+    grid-area: left;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .tm-topbar__right {
+    grid-area: right;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  .tm-brandBtn {
+    flex: 0 1 auto;
+    justify-content: flex-start;
+    padding: 4px 2px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .tm-brandText {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tm-logoIcon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .tm-brand__name,
+  .tm-brand__ai {
+    font-size: 15px;
+  }
+
+  .tm-authBtns {
+    width: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+
+  .tm-authBtns > * {
+    flex: 0 0 auto;
+  }
+
+  .tm-topbar__right > .btn,
+  .tm-topbar__right > button,
+  .tm-authBtns > .btn,
+  .tm-authBtns > button {
+    min-height: 42px;
+  }
+}
+
+@media (max-width: 390px) {
+  .tm-topbar {
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 10px;
+    column-gap: 8px;
+    row-gap: 8px;
+  }
+
+  .tm-topbar__left {
+    gap: 6px;
+  }
+
+  .tm-topbar__right .btn,
+  .tm-topbar__right button,
+  .tm-authBtns .btn,
+  .tm-authBtns button {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .tm-sidebarToggleBtn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .tm-logoIcon {
+    width: 26px;
+    height: 26px;
+  }
+
+  .tm-brand__name,
+  .tm-brand__ai {
+    font-size: 14px;
+  }
+}

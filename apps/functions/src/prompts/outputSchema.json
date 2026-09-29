@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "properties": {
+    "anchor": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "city": { "type": "string" },
+        "country": { "type": "string" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          },
+          "required": ["lat", "lng"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["query", "city", "country"],
+      "additionalProperties": false
+    },
+    "mapStops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "day": { "type": "integer", "minimum": 1 },
+          "order": { "type": "integer", "minimum": 1 },
+          "label": { "type": "string", "minLength": 2 },
+          "area": { "type": "string" },
+          "city": { "type": "string" },
+          "country": { "type": "string" },
+          "query": { "type": "string" },
+          "placeId": { "type": "string" },
+          "location": {
+            "type": "object",
+            "properties": {
+              "lat": { "type": "number" },
+              "lng": { "type": "number" }
+            },
+            "required": ["lat", "lng"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["day", "order", "label", "city", "country"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["anchor", "mapStops"],
+  "additionalProperties": false
+}

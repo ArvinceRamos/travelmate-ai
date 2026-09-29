@@ -1,0 +1,155 @@
+/* apps/web/src/styles/globals.css */
+
+:root {
+  /* =======================
+     Brand + Palette
+  ======================= */
+  --bg: #f1f1ea08;            /* main background */
+  --surface: #ffffff;       /* cards/panels */
+  --surface2: #fafafa;      /* subtle surface */
+  --text: #1a1a1a;          /* primary text */
+  --muted: #6b7280;         /* secondary text */
+  --border: #e5e7eb;        /* lines */
+  --accent: #00FA9A;        /* interactive hover/focus */
+  --btn: #00FA9A;           /* default action fill */
+  --btnText: #ffffff;
+
+  /* =======================
+     Typography
+  ======================= */
+  --font-ui: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+             "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+               Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* =======================
+     Radius + Shadow
+  ======================= */
+  --r-xl: 24px;
+  --r-lg: 20px;
+  --r-md: 16px;
+  --r-sm: 14px;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-sm: 0 6px 16px rgba(0,0,0,0.08);
+  --shadow-md: 0 12px 28px rgba(0,0,0,0.10);
+
+  --ring: 0 0 0 4px rgba(0, 250, 154, 0.18);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--bg);
+
+  /* Prevent horizontal scrollbar from long text / wide elements */
+  overflow-x: hidden;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100%;
+  height: 100%;
+  width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: var(--font-ui);
+}
+
+code,
+pre {
+  font-family: var(--font-code);
+}
+
+/* =======================
+   Focus styles
+======================= */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 12px;
+}
+
+/* =======================
+   Scrollbar styling
+   Note: thumb size automatically reflects content length.
+======================= */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(26, 26, 26, 0.28) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(26, 26, 26, 0.25);
+  border-radius: 999px;
+
+  /* Makes it look slimmer */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(26, 26, 26, 0.35);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* =======================
+   Common utility
+======================= */
+.sr-only{
+  position:absolute;
+  width:1px;height:1px;
+  padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0,0,0,0);
+  white-space:nowrap;border:0;
+}
+
+/* =======================
+   Modal overlay
+======================= */
+.tm-modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 26, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  z-index: 100;
+}
