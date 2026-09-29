@@ -31,3 +31,6 @@ Thumbs.db
 # Smoke-test artifacts
 test.mp3
 test*.wav
+
+# Local Firebase emulator secrets
+apps/functions/.secret.local
