@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { BrandMark } from "../common/Icon.jsx";
 import toast from "react-hot-toast";
 import MessageBubble from "./MessageBubble.jsx";
 
@@ -11,7 +12,7 @@ function ThinkingBubble() {
   return (
     <div className="tm-msg tm-msg--assistant" aria-live="polite" aria-label="TravelMate AI is thinking">
       <div className="tm-msg__avatar">
-        <img src="/assets/travelmate-logo.png" alt="TravelMate AI" className="tm-msg__avatar-img" />
+        <BrandMark size={32} />
       </div>
 
       <div className="tm-msg__body">

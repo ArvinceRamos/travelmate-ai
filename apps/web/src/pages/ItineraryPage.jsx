@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../components/common/Card.jsx";
+import Icon from "../components/common/Icon.jsx";
 import { useItinerary } from "../features/itinerary/itineraryStore";
 import { useNotifications } from "../features/notifications/notificationsStore.jsx";
 import { useNavigate } from "react-router-dom";
@@ -323,6 +324,7 @@ export default function ItineraryPage() {
 
   const activeTripEnded = useMemo(() => isTripEnded(active?.tripEnd), [active?.tripEnd]);
 
+  const [showDetailOnPhone, setShowDetailOnPhone] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftTripStart, setDraftTripStart] = useState("");
@@ -559,7 +561,7 @@ export default function ItineraryPage() {
 
   return (
     <div className="tm-itineraryPage tm-pageFull">
-      <div className="tm-itineraryCols">
+      <div className={`tm-itineraryCols ${showDetailOnPhone ? "tm-itineraryCols--detail" : ""}`}>
         <div className="tm-itineraryList">
           <Card title="Saved Itineraries">
             <div className="tm-itineraryListContent">
@@ -580,6 +582,7 @@ export default function ItineraryPage() {
                         }`}
                         onClick={() => {
                           setActiveId(it.id);
+                          setShowDetailOnPhone(true);
                           setConfirmDeleteId(null);
                           setFeedback(null);
                         }}
@@ -613,6 +616,10 @@ export default function ItineraryPage() {
         </div>
 
         <div className="tm-itineraryDetail">
+          <button type="button" className="tm-miniBtn tm-itineraryBack" onClick={() => setShowDetailOnPhone(false)} aria-label="Back to trips">
+            <Icon name="back" size={18} strokeWidth={2.2} />
+            Trips
+          </button>
           <Card title={active ? active.title || "Itinerary" : "Itinerary"}>
             {!active ? (
               <div className="muted">Select an itinerary on the left.</div>
@@ -634,12 +641,13 @@ export default function ItineraryPage() {
 
                 <div className="tm-itineraryActions">
                   <button
-                    className="tm-miniBtn"
+                    className="tm-miniBtn tm-miniBtn--primary"
                     type="button"
                     onClick={onViewOnMap}
                     disabled={!active?.text}
                     title={!active?.text ? "No itinerary text" : "View stops on the map"}
                   >
+                    <Icon name="map" size={18} />
                     View on Map
                   </button>
 
@@ -656,6 +664,7 @@ export default function ItineraryPage() {
                           : ""
                     }
                   >
+                    <Icon name="bell" size={18} />
                     {remindersBusy ? "Enabling…" : "Enable reminders"}
                   </button>
 
@@ -787,7 +796,8 @@ export default function ItineraryPage() {
                           }}
                           disabled={savingEdit}
                         >
-                          + Add day
+                          <Icon name="plus" size={16} />
+                          Add day
                         </button>
                       </div>
 
@@ -874,7 +884,7 @@ export default function ItineraryPage() {
                       )}
 
                       <div className="tm-itineraryEditorActions">
-                        <button className="tm-miniBtn" type="button" onClick={saveEdit} disabled={savingEdit}>
+                        <button className="tm-miniBtn tm-miniBtn--primary" type="button" onClick={saveEdit} disabled={savingEdit}>
                           {savingEdit ? "Saving..." : "Save changes"}
                         </button>
                         <button className="tm-miniBtn" type="button" onClick={cancelEdit} disabled={savingEdit}>

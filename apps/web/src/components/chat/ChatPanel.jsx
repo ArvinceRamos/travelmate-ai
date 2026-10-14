@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import MessageList from "./MessageList.jsx";
 import VoiceInputButton from "./VoiceInputButton.jsx";
 import VoiceMode from "./VoiceMode.jsx";
+import Icon from "../common/Icon.jsx";
 import { useComposerDraft } from "../../store/composerDraftContext.jsx";
 
 function isSpeechSupported() {
@@ -129,10 +130,10 @@ export default function ChatPanel({
 
         {showLandingContent && (
           <div className="tm-empty" aria-label="Starter prompts">
-            <div className="tm-empty__title">{greeting}</div>
-              <div className="tm-empty__subtitle">{subtitle}</div>
+            <h1 className="tm-empty__title">{greeting}</h1>
+            <p className="tm-empty__subtitle">{subtitle}</p>
 
-              <div className="tm-suggestionsGrid">
+            <div className="tm-suggestionsGrid">
               {suggestions.map((s) => (
                 <button
                   key={s.prompt}
@@ -141,13 +142,13 @@ export default function ChatPanel({
                   type="button"
                   disabled={busy}
                 >
-                  <div className="tm-suggestionEmoji" aria-hidden>
-                    {s.emoji}
-                  </div>
-                  <div className="tm-suggestionText">
-                    <div className="tm-suggestionTitle">{s.title}</div>
-                    <div className="tm-suggestionSubtitle">{s.subtitle}</div>
-                  </div>
+                  <span className="tm-suggestionIcon">
+                    <Icon name={s.icon} size={22} />
+                  </span>
+                  <span className="tm-suggestionText">
+                    <span className="tm-suggestionTitle">{s.title}</span>
+                    <span className="tm-suggestionSubtitle">{s.subtitle}</span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -160,6 +161,7 @@ export default function ChatPanel({
               <textarea
                 ref={taRef}
                 className="tm-input"
+                aria-label="Ask a travel question"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onKeyDown}
@@ -195,13 +197,13 @@ export default function ChatPanel({
                   </button>
                 ) : (
                   <button className="tm-sendBtn" onClick={handleSend} disabled={!canSend} type="button" aria-label="Send">
-                    <span aria-hidden>➤</span>
+                    <Icon name="send" strokeWidth={2.2} />
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="tm-disclaimer">TravelMate AI can make mistakes. Consider checking important information.</div>
+            <div className="tm-disclaimer">TravelMate AI can make mistakes. Check important details before you go.</div>
           </div>
         </div>
       </div>

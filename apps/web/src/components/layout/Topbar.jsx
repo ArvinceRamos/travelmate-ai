@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import AuthModal from "../auth/AuthModal.jsx";
 import Button from "../common/Button.jsx";
+import Icon, { BrandMark } from "../common/Icon.jsx";
 
 import { useAuth } from "../../hooks/useAuth";
 import { logoutFlow } from "../../services/logoutFlow";
@@ -71,7 +72,7 @@ export default function Topbar({ sidebarOpen, isMobile = false, onToggleSidebar 
           nav(`/chat?new=${Date.now()}`);
         }}
       >
-        <img className="tm-logoIcon" src="/assets/travelmate-logo.png" alt="TravelMate AI logo" />
+        <BrandMark size={30} />
         <div className="tm-brandText">
           <span className="tm-brand__name">TravelMate</span>
           <span className="tm-brand__ai"> AI</span>
@@ -93,7 +94,7 @@ export default function Topbar({ sidebarOpen, isMobile = false, onToggleSidebar 
               title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
               onClick={onToggleSidebar}
             >
-              ☰
+              <Icon name="menu" />
             </button>
           ) : null}
 

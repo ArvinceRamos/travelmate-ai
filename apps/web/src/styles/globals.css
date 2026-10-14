@@ -1,23 +1,52 @@
 /* apps/web/src/styles/globals.css */
 
+/* Breakpoints (custom properties cannot be used inside @media, so keep these values in sync):
+   1100px laptop, 900px tablet / sidebar drawer, 640px phone, 390px small phone */
 :root {
+  --bp-laptop: 1100px;
+  --bp-tablet: 900px;
+  --bp-phone: 640px;
+  --bp-small: 390px;
+
+  /* The palette is light-only; without this a dark-mode phone paints a black canvas under the translucent --bg */
+  color-scheme: light;
+
   /* =======================
      Brand + Palette
   ======================= */
-  --bg: #f1f1ea08;            /* main background */
-  --surface: #ffffff;       /* cards/panels */
-  --surface2: #fafafa;      /* subtle surface */
-  --text: #1a1a1a;          /* primary text */
-  --muted: #6b7280;         /* secondary text */
-  --border: #e5e7eb;        /* lines */
-  --accent: #00FA9A;        /* interactive hover/focus */
-  --btn: #00FA9A;           /* default action fill */
-  --btnText: #ffffff;
+  --bg: #F6F8F4;            /* main background */
+  --surface: #FFFFFF;       /* cards/panels */
+  --surface2: #EEF2EC;      /* segmented controls, subtle fills */
+  --text: #12201A;          /* ink */
+  --muted: #4A5A52;         /* secondary text */
+  --muted2: #5B6B63;        /* captions, section labels */
+  --border: #E3E8E2;        /* card lines */
+  --border-control: #D5DCD4;
+  --border-input: #C4CEC3;
+
+  /* Mint always carries dark text, never white */
+  --mint: #00E58F;
+  --on-mint: #0B2A1E;
+  --mint-tint: #E6FBF1;
+  --mint-text: #00724A;
+  --mint-ink: #0B3B2A;      /* text on mint tint */
+
+  --primary: #0E3B2B;       /* primary buttons, white text */
+  --primary-hover: #082A1E;
+  --on-primary: #FFFFFF;
+
+  --danger: #A12A1F;
+  --danger-border: #E5B5B0;
+  --danger-tint: #FCEDEB;
+
+  --accent: var(--mint);
+  --btn: var(--mint);
+  --btnText: var(--on-mint);
 
   /* =======================
      Typography
   ======================= */
-  --font-ui: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+  --font-ui: "Manrope", system-ui, -apple-system, BlinkMacSystemFont,
              "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
   --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
@@ -27,21 +56,26 @@
      Radius + Shadow
   ======================= */
   --r-xl: 24px;
-  --r-lg: 20px;
-  --r-md: 16px;
-  --r-sm: 14px;
+  --r-lg: 18px;             /* large cards */
+  --r-md: 16px;             /* cards */
+  --r-sm: 12px;             /* controls */
+  --r-pill: 999px;
 
-  --shadow-xs: 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-sm: 0 6px 16px rgba(0,0,0,0.08);
-  --shadow-md: 0 12px 28px rgba(0,0,0,0.10);
+  --shadow-xs: 0 1px 2px rgba(18, 32, 26, 0.06);
+  --shadow-sm: 0 6px 18px rgba(18, 32, 26, 0.08);
+  --shadow-md: 0 12px 28px rgba(18, 32, 26, 0.12);
 
-  --ring: 0 0 0 4px rgba(0, 250, 154, 0.18);
+  --ring: 0 0 0 3px rgba(0, 114, 74, 0.35);
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
 }
 
 html,
@@ -132,6 +166,10 @@ pre {
 /* =======================
    Common utility
 ======================= */
+.muted {
+  color: var(--muted);
+}
+
 .sr-only{
   position:absolute;
   width:1px;height:1px;
@@ -146,10 +184,15 @@ pre {
 .tm-modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(26, 26, 26, 0.28);
+  z-index: 999;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 22px;
-  z-index: 100;
+  padding: 16px;
+  background: rgba(18, 32, 26, 0.55);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* margin:auto centers the dialog but keeps its top reachable when it is taller than the screen */
+.tm-modalOverlay > * {
+  margin: auto;
 }

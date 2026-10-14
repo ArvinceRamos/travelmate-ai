@@ -6,6 +6,7 @@ import { useMaps } from "../features/maps/mapsStore.jsx";
 import { useItinerary } from "../features/itinerary/itineraryStore.jsx";
 import PlacesAutocompleteInput from "../features/maps/PlacesAutocompleteInput.jsx";
 import MapView from "../features/maps/MapView.jsx";
+import Icon from "../components/common/Icon.jsx";
 import { parseItineraryStops } from "../features/maps/itineraryStops.js";
 import { cachePlace, getCachedPlace } from "../features/maps/placeResolve.js";
 import { placesTextSearch, resolvePlaceLatLng } from "../services/mapsService.js";
@@ -1303,7 +1304,7 @@ export default function MapPage() {
                   aria-label="Open itineraries"
                   title="Itineraries"
                 >
-                  🗂️
+                  <Icon name="calendar" />
                 </button>
 
                 <button
@@ -1321,7 +1322,7 @@ export default function MapPage() {
                   aria-label="Open directions"
                   title="Directions"
                 >
-                  🧭
+                  <Icon name="directions" />
                 </button>
 
                 <button
@@ -1331,7 +1332,7 @@ export default function MapPage() {
                   aria-label="Search places"
                   title="Search"
                 >
-                  🔍
+                  <Icon name="search" strokeWidth={2.2} />
                 </button>
               </div>
 
@@ -1350,7 +1351,7 @@ export default function MapPage() {
                         aria-label="Close itineraries panel"
                         title="Close"
                       >
-                        ✕
+                        <Icon name="close" size={18} />
                       </button>
                     </div>
                   </div>
@@ -1468,28 +1469,34 @@ export default function MapPage() {
                 <div className="tm-routePanel tm-routePanel--directions" aria-label="Directions">
                   <div className="tm-routePanel__top tm-routePanel__top--directions">
                     <div className="tm-routeModes" role="tablist" aria-label="Travel mode">
-                      <button type="button" className={`tm-routeModeBtn ${travelMode === "DRIVING" ? "is-active" : ""}`} onClick={() => handleTravelModeChange("DRIVING")}>
-                        🚗
+                      <button type="button" className={`tm-routeModeBtn ${travelMode === "DRIVING" ? "is-active" : ""}`} aria-label="Drive" aria-selected={travelMode === "DRIVING"} role="tab" onClick={() => handleTravelModeChange("DRIVING")}>
+                        <Icon name="car" />
                       </button>
                       <button
                         type="button"
                         className={`tm-routeModeBtn ${travelMode === "TWO_WHEELER" ? "is-active" : ""}`}
+                        aria-label="Two-wheeler"
+                        aria-selected={travelMode === "TWO_WHEELER"}
+                        role="tab"
                         onClick={() => handleTravelModeChange("TWO_WHEELER")}
                       >
-                        🛵
+                        <Icon name="scooter" />
                       </button>
-                      <button type="button" className={`tm-routeModeBtn ${travelMode === "TRANSIT" ? "is-active" : ""}`} onClick={() => handleTravelModeChange("TRANSIT")}>
-                        🚌
+                      <button type="button" className={`tm-routeModeBtn ${travelMode === "TRANSIT" ? "is-active" : ""}`} aria-label="Transit" aria-selected={travelMode === "TRANSIT"} role="tab" onClick={() => handleTravelModeChange("TRANSIT")}>
+                        <Icon name="bus" />
                       </button>
-                      <button type="button" className={`tm-routeModeBtn ${travelMode === "WALKING" ? "is-active" : ""}`} onClick={() => handleTravelModeChange("WALKING")}>
-                        🚶
+                      <button type="button" className={`tm-routeModeBtn ${travelMode === "WALKING" ? "is-active" : ""}`} aria-label="Walk" aria-selected={travelMode === "WALKING"} role="tab" onClick={() => handleTravelModeChange("WALKING")}>
+                        <Icon name="walk" />
                       </button>
                       <button
                         type="button"
                         className={`tm-routeModeBtn ${travelMode === "BICYCLING" ? "is-active" : ""}`}
+                        aria-label="Cycle"
+                        aria-selected={travelMode === "BICYCLING"}
+                        role="tab"
                         onClick={() => handleTravelModeChange("BICYCLING")}
                       >
-                        🚲
+                        <Icon name="bike" />
                       </button>
                     </div>
 
@@ -1507,7 +1514,7 @@ export default function MapPage() {
                         aria-label="Close directions"
                         title="Close"
                       >
-                        ✕
+                        <Icon name="close" size={18} />
                       </button>
                     </div>
                   </div>
@@ -1522,9 +1529,7 @@ export default function MapPage() {
                       </div>
 
                       <div className="tm-routeRow">
-                        <div className="tm-routePin" aria-hidden>
-                          ○
-                        </div>
+                        <span className="tm-routePin" aria-hidden="true" />
                         <PlacesAutocompleteInput
                           inputId="tm_route_origin"
                           value={origin}
@@ -1547,9 +1552,7 @@ export default function MapPage() {
                       </div>
 
                       <div className="tm-routeRow">
-                        <div className="tm-routePin tm-routePin--dest" aria-hidden>
-                          📍
-                        </div>
+                        <span className="tm-routePin tm-routePin--dest" aria-hidden="true" />
                         <PlacesAutocompleteInput
                           inputId="tm_route_destination"
                           value={destination}
@@ -1563,7 +1566,7 @@ export default function MapPage() {
                     </div>
 
                     <div className="tm-routeActionRow tm-routeActionRow--tight">
-                      <button className="tm-mapSearchBtn tm-routeBtn" onClick={() => buildRoute()}>
+                      <button className="tm-mapSearchBtn tm-routeBtn" type="button" onClick={() => buildRoute()}>
                         Directions
                       </button>
 
@@ -1641,14 +1644,14 @@ export default function MapPage() {
                 ? [{
                     id: "manual-route",
                     positions: directions.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-                    color: "#087f8c",
+                    color: "#0E3B2B",
                   }]
                 : []),
               ...(!routeOpen && itineraryRouteOn && showItineraryRenderer && itineraryDirections?.geometry?.coordinates?.length > 1
                 ? [{
                     id: "itinerary-route",
                     positions: itineraryDirections.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-                    color: "#00a98f",
+                    color: "#00724A",
                   }]
                 : []),
             ]}
@@ -1673,7 +1676,7 @@ export default function MapPage() {
                     </div>
 
                     <button type="button" className="tm-popupClose" onClick={() => setActiveMarker(null)} aria-label="Close place popup" title="Close">
-                      ✕
+                      <Icon name="close" size={16} />
                     </button>
                   </div>
 

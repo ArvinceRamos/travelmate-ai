@@ -117,6 +117,7 @@ export default function PlacesAutocompleteInput({
           setOpen(true);
         }}
         placeholder={placeholder}
+        aria-label={placeholder}
         disabled={disabled}
         autoComplete="off"
         onFocus={() => setOpen(true)}

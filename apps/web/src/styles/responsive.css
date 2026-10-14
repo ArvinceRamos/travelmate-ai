@@ -1,0 +1,20 @@
+/* Loaded last: touch-target and overflow safety nets for phones. */
+
+@media (max-width: 640px) {
+  .tm-notifKebab,
+  .tm-notifKebab--sm,
+  .tm-ellipsisBtn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Long place names and URLs must wrap instead of widening their container */
+.tm-notifTitle,
+.tm-notifBody {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+

@@ -8,7 +8,6 @@ const BASE_URL = USE_EMULATORS
   ? `http://127.0.0.1:5001/${PROJECT_ID}/${REGION}/api`
   : (import.meta.env.VITE_API_BASE_URL || "");
 
-console.log("[apiClient] BASE_URL =", BASE_URL);
 
 async function readBodySafe(res) {
   const text = await res.text().catch(() => "");

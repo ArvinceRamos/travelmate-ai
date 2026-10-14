@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Card from "../components/common/Card.jsx";
+import Icon from "../components/common/Icon.jsx";
 import {
   useNotifications,
   extractTimedItemsByDay,
@@ -78,9 +79,9 @@ function isVisibleNow(n, nowMs) {
 
 function notifIcon(n) {
   const type = String(n?.type || "");
-  if (type === "time-based") return "⏰";
-  if (type === "time-slot") return "🕒";
-  return "🔔";
+  if (type === "time-based") return "clock";
+  if (type === "time-slot") return "calendar";
+  return "bell";
 }
 
 function clamp(s, max = 120) {
@@ -326,18 +327,25 @@ export default function NotificationsPage() {
     setBanner(null);
   }
 
+  function menuAnchor(rect) {
+    return {
+      x: Math.round(Math.max(12, Math.min(rect.right - 220, window.innerWidth - 232))),
+      y: Math.round(Math.max(12, Math.min(rect.bottom + 6, window.innerHeight - 172))),
+    };
+  }
+
   function openNotifMenu(e, notifId) {
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
-    setMenu({ open: true, id: notifId, x: Math.round(rect.right), y: Math.round(rect.bottom + 6) });
+    setMenu({ open: true, id: notifId, ...menuAnchor(rect) });
   }
 
   function openSourceMenu(e, itineraryId) {
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
-    setSourceMenu({ open: true, itineraryId, x: Math.round(rect.right), y: Math.round(rect.bottom + 6) });
+    setSourceMenu({ open: true, itineraryId, ...menuAnchor(rect) });
   }
 
   async function actRead(id) {
@@ -401,7 +409,7 @@ export default function NotificationsPage() {
                   <div className="tm-notifBanner__row">
                     <div className="tm-notifBanner__title">Reminders enabled for: {banner.scheduledFor}</div>
                     <button className="tm-notifBanner__x" type="button" onClick={dismissBanner} aria-label="Dismiss">
-                      ×
+                      <Icon name="close" size={18} />
                     </button>
                   </div>
                   {banner.blocked ? (
@@ -466,7 +474,7 @@ export default function NotificationsPage() {
                                   aria-label="More"
                                   onClick={(e) => openSourceMenu(e, s.itineraryId)}
                                 >
-                                  ⋯
+                                  <Icon name="more" />
                                 </button>
                               </div>
                             </div>
@@ -549,7 +557,7 @@ export default function NotificationsPage() {
                             >
                               <div className="tm-notifCard__left">
                                 <div className="tm-notifIcon" aria-hidden="true">
-                                  {notifIcon(n)}
+                                  <Icon name={notifIcon(n)} />
                                 </div>
                                 <div className="tm-notifMain">
                                   <div className="tm-notifTitleRow">
@@ -566,8 +574,8 @@ export default function NotificationsPage() {
                                 </div>
                               </div>
 
-                              <button className="tm-notifKebab" type="button" onClick={(e) => openNotifMenu(e, n.id)}>
-                                ⋯
+                              <button className="tm-notifKebab" type="button" aria-label="More actions" onClick={(e) => openNotifMenu(e, n.id)}>
+                                <Icon name="more" />
                               </button>
                             </div>
                           );

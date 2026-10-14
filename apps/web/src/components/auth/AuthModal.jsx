@@ -8,6 +8,7 @@ import {
   validateSignupEmailLegitimacy,
 } from "../../services/authService";
 import toast from "react-hot-toast";
+import Icon, { BrandMark } from "../common/Icon.jsx";
 
 const RESEND_COOLDOWN_SECONDS = 45;
 const AUTO_VERIFY_POLL_MS = 4000;
@@ -409,17 +410,15 @@ export default function AuthModal({ open, mode = "login", onClose }) {
   }
 
   return (
-    <div className="tm-modalOverlay" role="dialog" aria-modal="true">
-      <div className="tm-authShell" aria-label="Authentication dialog">
+    <div className="tm-modalOverlay" role="dialog" aria-modal="true" aria-label="Log in or sign up">
+      <div className="tm-authShell">
         <div className="tm-authLeft">
           <div className="tm-authLeftContent">
             <div className="tm-authBrandCard">
-              <div className="tm-authLogoWrap">
-                <img className="tm-authLogo" src="/assets/travelmate-logo.png" alt="TravelMate AI" />
-              </div>
+              <BrandMark size={48} />
 
               <div className="tm-authBrandMain">
-                <span className="tm-authBrandName">Travelmate</span>
+                <span className="tm-authBrandName">TravelMate</span>
                 <span className="tm-authBrandAi">AI</span>
               </div>
 
@@ -429,7 +428,7 @@ export default function AuthModal({ open, mode = "login", onClose }) {
             <div className="tm-authFeaturesCard">
               <div className="tm-authFeaturesHeader">
                 <div className="tm-authFeaturesBadge" aria-hidden>
-                  ✨
+                  <Icon name="compass" />
                 </div>
                 <h3 className="tm-authFeaturesTitle">Everything in one place</h3>
               </div>
@@ -437,7 +436,7 @@ export default function AuthModal({ open, mode = "login", onClose }) {
               <div className="tm-authFeaturesList">
                 <div className="tm-authFeatureItem">
                   <div className="tm-authFeatureIcon" aria-hidden>
-                    🤖
+                    <Icon name="spark" />
                   </div>
                   <div className="tm-authFeatureContent">
                     <div className="tm-authFeatureTitle">AI-driven personalized suggestions</div>
@@ -449,7 +448,7 @@ export default function AuthModal({ open, mode = "login", onClose }) {
 
                 <div className="tm-authFeatureItem">
                   <div className="tm-authFeatureIcon" aria-hidden>
-                    ⚡
+                    <Icon name="bolt" />
                   </div>
                   <div className="tm-authFeatureContent">
                     <div className="tm-authFeatureTitle">Generate itineraries in seconds</div>
@@ -459,7 +458,7 @@ export default function AuthModal({ open, mode = "login", onClose }) {
 
                 <div className="tm-authFeatureItem">
                   <div className="tm-authFeatureIcon" aria-hidden>
-                    🧭
+                    <Icon name="directions" />
                   </div>
                   <div className="tm-authFeatureContent">
                     <div className="tm-authFeatureTitle">Navigate stress-free</div>
@@ -499,7 +498,7 @@ export default function AuthModal({ open, mode = "login", onClose }) {
               </div>
 
               <button type="button" className="tm-authClose" onClick={onClose} aria-label="Close">
-                ✕
+                <Icon name="close" />
               </button>
             </div>
 
@@ -507,19 +506,23 @@ export default function AuthModal({ open, mode = "login", onClose }) {
               <div className="tm-authTabs" role="tablist" aria-label="Authentication tabs">
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={tab === "login"}
                   className={tab === "login" ? "tm-authTab tm-authTab--active" : "tm-authTab"}
                   onClick={() => setTab("login")}
                   disabled={busy || resendBusy}
                 >
-                  Login
+                  Log in
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={tab === "signup"}
                   className={tab === "signup" ? "tm-authTab tm-authTab--active" : "tm-authTab"}
                   onClick={() => setTab("signup")}
                   disabled={busy || resendBusy}
                 >
-                  Sign Up
+                  Sign up
                 </button>
               </div>
             ) : null}
@@ -571,8 +574,9 @@ export default function AuthModal({ open, mode = "login", onClose }) {
             <form onSubmit={handleEmailSubmit} className="tm-authForm">
               {tab === "signup" && !verificationStep ? (
                 <div className="tm-fieldPro">
-                  <label className="tm-labelPro">Name</label>
+                  <label className="tm-labelPro" htmlFor="tm-auth-name">Name</label>
                   <input
+                    id="tm-auth-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Your name"
@@ -583,8 +587,9 @@ export default function AuthModal({ open, mode = "login", onClose }) {
               ) : null}
 
               <div className="tm-fieldPro">
-                <label className="tm-labelPro">Email</label>
+                <label className="tm-labelPro" htmlFor="tm-auth-email">Email</label>
                 <input
+                  id="tm-auth-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -595,8 +600,9 @@ export default function AuthModal({ open, mode = "login", onClose }) {
               </div>
 
               <div className="tm-fieldPro">
-                <label className="tm-labelPro">{verificationStep ? "Password to continue" : "Password"}</label>
+                <label className="tm-labelPro" htmlFor="tm-auth-password">{verificationStep ? "Password to continue" : "Password"}</label>
                 <input
+                  id="tm-auth-password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -608,8 +614,9 @@ export default function AuthModal({ open, mode = "login", onClose }) {
 
               {tab === "signup" && !verificationStep ? (
                 <div className="tm-fieldPro">
-                  <label className="tm-labelPro">Confirm Password</label>
+                  <label className="tm-labelPro" htmlFor="tm-auth-confirm">Confirm Password</label>
                   <input
+                    id="tm-auth-confirm"
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
@@ -644,7 +651,7 @@ export default function AuthModal({ open, mode = "login", onClose }) {
 
               {!verificationStep ? (
                 <button className="tm-primaryBtnPro" disabled={busy || resendBusy} type="submit">
-                  {busy ? "Please wait…" : tab === "login" ? "Login" : "Create account"}
+                  {busy ? "Please wait…" : tab === "login" ? "Log in" : "Create account"}
                 </button>
               ) : (
                 <>
@@ -699,7 +706,7 @@ export default function AuthModal({ open, mode = "login", onClose }) {
                         onClick={() => setTab("login")}
                         disabled={busy || resendBusy}
                       >
-                        Login
+                        Log in
                       </button>
                     </>
                   )}

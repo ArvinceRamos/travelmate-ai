@@ -1,4 +1,5 @@
 import React from "react";
+import { BrandMark } from "../common/Icon.jsx";
 import { useNavigate } from "react-router-dom";
 import { useMaps } from "../../features/maps/mapsStore";
 import { renderMessageContent } from "../../utils/richText.jsx";
@@ -20,7 +21,7 @@ export default function MessageBubble({ role, content, footer }) {
     <div className={`tm-msg ${isUser ? "tm-msg--user" : "tm-msg--assistant"}`}>
       {!isUser && (
         <div className="tm-msg__avatar">
-          <img src="/assets/travelmate-logo.png" alt="TravelMate AI" className="tm-msg__avatar-img" />
+          <BrandMark size={32} />
         </div>
       )}
 

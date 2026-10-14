@@ -14,6 +14,7 @@ import "./styles/maps.css";
 import "./styles/itinerary.css";
 import "./styles/notifications.css";
 import "./styles/settings.css";
+import "./styles/responsive.css";
 
 
 

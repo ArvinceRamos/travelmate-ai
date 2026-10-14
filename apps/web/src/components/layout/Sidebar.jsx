@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 
 import Button from "../common/Button.jsx";
+import Icon, { BrandMark } from "../common/Icon.jsx";
 
 import { useAuth } from "../../hooks/useAuth";
 import { deleteChat, setChatTitle, subscribeChats } from "../../services/chatService";
@@ -11,10 +12,11 @@ import { useChatUi } from "../../store/chatUiContext.jsx";
 import { useNotifications } from "../../features/notifications/notificationsStore.jsx";
 
 const navLinks = [
-  { to: "/map", label: "View Maps", emoji: "🗺️" },
-  { to: "/itinerary", label: "Saved Itinerary", emoji: "📌" },
-  { to: "/notifications", label: "Notifications", emoji: "🔔" },
-  { to: "/settings", label: "Settings", emoji: "⚙️" },
+  { to: "/chat", label: "Chat", icon: "chat" },
+  { to: "/map", label: "View Maps", icon: "map" },
+  { to: "/itinerary", label: "Saved Itinerary", icon: "calendar" },
+  { to: "/notifications", label: "Notifications", icon: "bell" },
+  { to: "/settings", label: "Settings", icon: "settings" },
 ];
 
 export default function Sidebar({ isOpen = true, isMobile = false, onClose }) {
@@ -177,7 +179,7 @@ export default function Sidebar({ isOpen = true, isMobile = false, onClose }) {
               nav(`/chat?new=${Date.now()}`);
             }}
           >
-            <img className="tm-logoIcon" src="/assets/travelmate-logo.png" alt="TravelMate AI logo" />
+            <BrandMark size={34} />
             <div className="tm-brandText">
               <span className="tm-brand__name">TravelMate</span>
               <span className="tm-brand__ai"> AI</span>
@@ -191,12 +193,13 @@ export default function Sidebar({ isOpen = true, isMobile = false, onClose }) {
             title="Close"
             onClick={() => onClose?.()}
           >
-            ☰
+            <Icon name="close" />
           </button>
         </div>
 
         <Button onClick={onNewChat} disabled={loading}>
-          + New chat
+          <Icon name="plus" size={18} />
+          New chat
         </Button>
 
         <div className="tm-sidebar__sectionTitle">Recent Chats</div>
@@ -228,10 +231,10 @@ export default function Sidebar({ isOpen = true, isMobile = false, onClose }) {
                       title="Save"
                       aria-label="Save"
                     >
-                      ✓
+                      <Icon name="check" size={18} />
                     </button>
                     <button className="tm-iconMini" type="button" onClick={cancelRename} title="Cancel" aria-label="Cancel">
-                      ✕
+                      <Icon name="close" size={18} />
                     </button>
                   </div>
                 ) : (
@@ -263,7 +266,7 @@ export default function Sidebar({ isOpen = true, isMobile = false, onClose }) {
                         openMenuFor(c.id, e.currentTarget);
                       }}
                     >
-                      ⋮
+                      <Icon name="more" />
                     </button>
                   </>
                 )}
@@ -301,9 +304,7 @@ export default function Sidebar({ isOpen = true, isMobile = false, onClose }) {
               }}
               className={({ isActive }) => (isActive ? "tm-navLink tm-navLink--active" : "tm-navLink")}
             >
-              <span className="tm-navEmoji" aria-hidden>
-                {l.emoji}
-              </span>
+              <Icon name={l.icon} className="tm-navIcon" />
               <span>{l.label}</span>
               {showBadge ? (
                 <span className="tm-navBadge" aria-label={`${unreadCount} unread notifications`}>

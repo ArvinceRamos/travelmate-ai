@@ -6,7 +6,6 @@ import { useAuth } from "../hooks/useAuth";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { addMessage, createChat, getChat, setChatTitleOnce, subscribeMessages } from "../services/chatService";
 import ChatPanel from "../components/chat/ChatPanel.jsx";
-import AuthModal from "../components/auth/AuthModal.jsx";
 import { useChatUi } from "../store/chatUiContext.jsx";
 import { useItinerary } from "../features/itinerary/itineraryStore.jsx";
 import { detectSaveableItineraryText } from "../utils/itineraryDetect";
@@ -20,39 +19,39 @@ const SUBTITLE = "Your AI-driven travel planning assistant";
 
 const SUGGESTIONS = [
   {
-    emoji: "🍜",
-    title: "3-day Manila itinerary",
-    subtitle: "Food + history, mid-range budget",
+    icon: "food",
+    title: "3-day Manila",
+    subtitle: "Food, history and a mid-range budget",
     prompt: "Make a 3-day Manila itinerary (food + history, mid-range budget).",
   },
   {
-    emoji: "🏝️",
-    title: "Weekend Cebu plan",
-    subtitle: "Beaches + city highlights + commute tips",
+    icon: "beach",
+    title: "Weekend in Cebu",
+    subtitle: "Beaches, city highlights, commute tips",
     prompt: "Weekend Cebu plan: beaches + city highlights + commute tips.",
   },
   {
-    emoji: "🏔️",
+    icon: "mountain",
     title: "Baguio day trip",
-    subtitle: "Best route + timing + food stops",
+    subtitle: "Best route, timing and food stops",
     prompt: "Baguio day trip from Manila: route options + timing + food stops.",
   },
   {
-    emoji: "🚤",
-    title: "Palawan 5 days",
-    subtitle: "El Nido + Coron, balanced itinerary",
+    icon: "boat",
+    title: "Palawan, 5 days",
+    subtitle: "El Nido and Coron, balanced pace",
     prompt: "Palawan 5 days: El Nido + Coron (balanced itinerary).",
   },
   {
-    emoji: "🏄",
-    title: "Siargao 3 days",
-    subtitle: "Surf-friendly + best time to visit",
+    icon: "surf",
+    title: "Siargao, 3 days",
+    subtitle: "Surf-friendly, best time to visit",
     prompt: "Siargao 3 days: best time to go + surfing-friendly plan.",
   },
   {
-    emoji: "🛡️",
+    icon: "shield",
     title: "Solo travel safety",
-    subtitle: "Cebu City night transport tips",
+    subtitle: "Night transport tips in Cebu City",
     prompt: "Solo traveler safety tips for Cebu City (night transport + areas to avoid).",
   },
 ];
@@ -811,8 +810,6 @@ export default function ChatPage() {
   const [conflictInfo, setConflictInfo] = useState(null);
   const [awaitingNewDates, setAwaitingNewDates] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState([]);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState("login");
   const [locationPrompt, setLocationPrompt] = useState(null);
   const [locationBusy, setLocationBusy] = useState(false);
 
@@ -889,28 +886,6 @@ export default function ChatPage() {
 
     prevRouteChatIdRef.current = next;
   }, [chatId, setPending]);
-
-  useEffect(() => {
-  if (!loading && user) {
-    setAuthModalOpen(false);
-  }
-}, [loading, user]);
-
-useEffect(() => {
-  const qs = new URLSearchParams(location.search || "");
-  const authMode = qs.get("auth");
-
-  if (!authMode) return;
-  if (loading) return;
-  if (user) return;
-
-  setAuthModalMode(authMode === "signup" ? "signup" : "login");
-  setAuthModalOpen(true);
-
-  qs.delete("auth");
-  const next = qs.toString();
-  nav(`${location.pathname}${next ? `?${next}` : ""}`, { replace: true });
-}, [location.key, loading, user, nav, location.pathname, location.search]);
 
   useEffect(() => {
     const nextId = chatId || null;
@@ -1680,12 +1655,6 @@ return (
       itineraryBusy={itineraryBusy}
       canSaveItinerary={!!user}
       showGuestAuthBar={false}
-    />
-
-    <AuthModal
-      open={authModalOpen}
-      mode={authModalMode}
-      onClose={() => setAuthModalOpen(false)}
     />
 
     {locationPrompt ? (

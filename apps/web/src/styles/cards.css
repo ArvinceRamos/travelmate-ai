@@ -1,8 +1,7 @@
 .card {
-  background: var(--paper);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadowSoft);
+  border-radius: var(--r-lg);
   overflow: hidden;
 }
 
@@ -11,12 +10,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   border-bottom: 1px solid var(--border);
 }
 
 .card__title {
-  font-weight: 900;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 
 .card__titleRight {
@@ -26,70 +29,132 @@
 }
 
 .card__body {
-  padding: 16px;
+  padding: 18px;
 }
 
 /* Buttons */
 .btn {
-  border: 1px solid rgba(40, 85, 112, 0.28);
-  border-radius: 14px;
-  padding: 11px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--r-sm);
   cursor: pointer;
-  background: rgba(40, 85, 112, 0.10);
+  background: var(--surface);
   color: var(--text);
-  font-weight: 900;
-  box-shadow: var(--shadowSoft);
-}
-
-.btn:hover {
-  border-color: rgba(40, 85, 112, 0.48);
-  background: rgba(40, 85, 112, 0.14);
+  font-size: 14px;
+  font-weight: 700;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
 .btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-  box-shadow: none;
 }
 
-/* Primary (never dark) */
 .btn--primary {
-  background: #00FA9A;
-  color: var(--paper);
-  border-color: #edf0ef;
-}
-.btn--primary:hover {
-  border-color: rgba(82, 83, 83, 0.55);
-  background: rgba(0, 250, 154, 0.08);
-  transform: translateY(-1px);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
 }
 
-/* Secondary */
 .btn--secondary {
-  background: rgba(227, 222, 215, 0.85);
-  border-color: rgba(40, 85, 112, 0.20);
+  background: var(--surface2);
+  border-color: var(--surface2);
 }
 
-/* Ghost */
 .btn--ghost {
-  background: transparent;
-  border-color: rgba(40, 85, 112, 0.24);
-  box-shadow: none;
+  background: var(--surface);
+}
+
+/* Compact action buttons shared by chat, map popups, itineraries and notifications */
+.tm-miniBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tm-miniBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tm-miniBtn--primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.tm-miniBtn--danger {
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.tm-miniBtn--danger.is-active {
+  background: var(--danger-tint);
+}
+
+@media (max-width: 640px) {
+  .tm-miniBtn {
+    min-height: 44px;
+  }
+}
+
+@media (hover: hover) {
+  .tm-miniBtn:hover:not(:disabled) {
+    border-color: var(--border-input);
+    background: var(--bg);
+  }
+
+  .tm-miniBtn--primary:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    background: var(--primary-hover);
+  }
+
+  .tm-miniBtn--danger:hover:not(:disabled) {
+    border-color: var(--danger-border);
+    background: var(--danger-tint);
+  }
+
+  .btn:hover:not(:disabled) {
+    border-color: var(--border-input);
+    background: var(--bg);
+  }
+
+  .btn--primary:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    background: var(--primary-hover);
+  }
 }
 
 /* Inputs */
 .input {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 11px 12px;
-  background: var(--paper);
+  min-height: 48px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-sm);
+  padding: 0 14px;
+  background: var(--surface);
   color: var(--text);
-  font-weight: 650;
+  font-size: 16px;
 }
 
 .input::placeholder {
-  color: rgba(51, 51, 51, 0.55);
+  color: var(--muted2);
 }
 
 .list li {

@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 
 import Card from "../components/common/Card.jsx";
 import Button from "../components/common/Button.jsx";
+import Icon from "../components/common/Icon.jsx";
 
 import { useAuth } from "../hooks/useAuth";
 import { auth, db, storage } from "../services/firebase";
@@ -722,7 +723,7 @@ export default function SettingsPage() {
                 aria-label="Close"
                 title="Close"
               >
-                ✕
+                <Icon name="close" size={18} />
               </button>
             </div>
 
