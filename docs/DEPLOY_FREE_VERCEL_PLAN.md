@@ -20,7 +20,7 @@ The goal is to show TravelMate to clients on a public Vercel URL at **$0**, with
 - **Vercel project A, "travelmate-web":** root `apps/web`, Vite static build (`vercel.json` SPA rewrite already exists).
 - **Vercel project B, "travelmate-api":** root `apps/functions`, the existing Express app served as one Node serverless function.
 - **Firebase Spark:** Auth, Firestore and FCM only. No Functions deploy. Avatar uploads stay off (`VITE_ENABLE_AVATAR_UPLOADS=false`).
-- **AI:** Gemini (`gemini-2.5-flash`) first, Groq (`llama-3.3-70b-versatile`) as fallback.
+- **AI:** Gemini `gemini-3.5-flash-lite` first, `gemini-3.1-flash-lite` as fallback (each has its own free quota). Updated 2026-10-15: `gemini-2.5-flash` returns 404 for new projects and Groq's `llama-3.3-70b-versatile` was shut down; Groq (`openai/gpt-oss-120b`) still works as a fallback but its 8K tokens/minute is smaller than the itinerary prompt.
 - **Reminders:** cron-job.org (free) calls a secured endpoint every 5 minutes.
 
 ## Part 1: Backend runs on Vercel
@@ -33,14 +33,15 @@ The goal is to show TravelMate to clients on a public Vercel URL at **$0**, with
 4. **Admin credentials** (`index.js:26`). If `FIREBASE_SERVICE_ACCOUNT` (JSON) is set, call `admin.initializeApp({ credential: admin.credential.cert(JSON.parse(...)) })`. Otherwise keep the current call.
 5. **Cron endpoint.** Add `POST /v1/cron/reminders`, guarded by `Authorization: Bearer ${CRON_SECRET}`, which calls `runReminderSweep()`. Also protect the unauthenticated `/v1/debug/run-reminders` (`:1267`) with the same check, or remove it.
 6. **Groq provider.** Add a `groq` provider in `src/services/aiProvider.service.js`.
-   - Reuse the existing OpenAI-compatible branch with base `https://api.groq.com/openai/v1`, key `GROQ_API_KEY` and default model `llama-3.3-70b-versatile`.
+   - Reuse the existing OpenAI-compatible branch with base `https://api.groq.com/openai/v1`, key `GROQ_API_KEY` and default model `openai/gpt-oss-120b`.
    - Extend `test/aiProvider.test.cjs`.
 7. **Rate-limiter timer.** Add `.unref()` to the `setInterval` in `src/middleware/rateLimit.js:11` so it doesn't keep the function alive. The limiter stays per-instance, which is fine for a demo.
 8. **CORS.** Set `CORS_ALLOWED_ORIGINS` to the web project URL.
 
 **Backend env vars on Vercel:**
-- `AI_PROVIDER=gemini`, `GEMINI_API_KEY`
-- `AI_FALLBACK_PROVIDER=groq`, `GROQ_API_KEY`
+- `AI_PROVIDER=gemini`, `AI_MODEL=gemini-3.5-flash-lite`, `GEMINI_API_KEY`
+- `AI_FALLBACK_PROVIDER=gemini`, `AI_FALLBACK_MODEL=gemini-3.1-flash-lite`
+- `AI_MAX_TOKENS=4096`, `LLM_FIRST_INTAKE=1` (the AI-led intake the oral-defense version ran with)
 - `FIREBASE_SERVICE_ACCOUNT`, `CRON_SECRET`, `CORS_ALLOWED_ORIGINS`
 - `NOMINATIM_USER_AGENT="TravelMate-Capstone/1.0 (contact email)"`
 
@@ -109,7 +110,7 @@ The audit is verified against the code. The app already has a viewport meta tag,
 - On the live site:
   - Log in with email and with Google.
   - Generate an itinerary (confirm Gemini responds).
-  - Temporarily set an invalid `GEMINI_API_KEY` in a preview deployment to confirm the Groq fallback.
+  - Temporarily set `AI_MODEL` to a model that doesn't exist in a preview deployment to confirm the fallback model answers.
   - Map search and route.
   - Weather.
 - Trigger the cron URL manually with the secret and confirm a 200.

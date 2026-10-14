@@ -58,14 +58,14 @@ Both free tiers require no payment method and have rate limits suitable for a de
 - [ ] Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
 - [ ] Click **Create API Key**.
 - [ ] Copy the key (you'll paste it into Vercel environment in step D3).
-- [ ] Note: Gemini free tier has a rate limit; see the [docs](https://ai.google.dev/pricing) for current details.
+- [ ] Note: the free tier is per model. On 2026-10-15 the Flash-Lite models allowed 15 requests/min and 500/day; the full Flash models only 20/day, which is too few for this app (one trip uses about 15 requests). Check your project's limits at [aistudio.google.com/rate-limit](https://aistudio.google.com/rate-limit) with **All models** switched on.
 
-### B2. Groq (Fallback AI)
+### B2. Groq (Optional — not needed for the recommended setup)
 
 - [ ] Go to [Groq Console](https://console.groq.com/keys).
 - [ ] Sign in or create a free account (no card required).
 - [ ] Copy your API key (you'll paste it into Vercel environment in step D3).
-- [ ] Note: Default model is `llama-3.3-70b-versatile`.
+- [ ] Note: Default model is `openai/gpt-oss-120b` (`llama-3.3-70b-versatile` was shut down on 2026-08-16). Groq's free 8K tokens/minute is smaller than the itinerary prompt, so a second Gemini model is the better fallback.
 
 ---
 
@@ -109,9 +109,12 @@ You will create two separate Vercel projects from the same GitHub repository, ea
 | Name | Value |
 |------|-------|
 | `AI_PROVIDER` | `gemini` |
+| `AI_MODEL` | `gemini-3.5-flash-lite` |
 | `GEMINI_API_KEY` | (paste from B1) |
-| `AI_FALLBACK_PROVIDER` | `groq` |
-| `GROQ_API_KEY` | (paste from B2) |
+| `AI_FALLBACK_PROVIDER` | `gemini` |
+| `AI_FALLBACK_MODEL` | `gemini-3.1-flash-lite` |
+| `AI_MAX_TOKENS` | `4096` |
+| `LLM_FIRST_INTAKE` | `1` |
 | `FIREBASE_SERVICE_ACCOUNT` | (paste the entire service-account JSON from A3, on a single line with no extra spaces) |
 | `CRON_SECRET` | (generate a long random string, e.g., 32+ random characters; keep it secret) |
 | `CORS_ALLOWED_ORIGINS` | `https://<travelmate-web>.vercel.app` (replace with your actual web project URL) |
@@ -213,10 +216,9 @@ TravelMate uses reminders (notifications for upcoming itineraries). The backend 
 
 ### F3. Test AI Fallback (Optional but Recommended)
 
-- [ ] To confirm Groq fallback works, temporarily set an invalid `GEMINI_API_KEY` in Vercel (e.g., `invalid-key`).
-- [ ] Trigger a chat message.
-- [ ] It should fail with Gemini and fall back to Groq automatically.
-- [ ] Restore the correct key.
+- [ ] To confirm the fallback works, temporarily set `AI_MODEL` to a model that doesn't exist (e.g., `gemini-does-not-exist`) and redeploy.
+- [ ] Trigger a chat message. It should still answer through `AI_FALLBACK_MODEL`, and the logs should show `[ai] provider failed` with the primary model's 404.
+- [ ] Restore `AI_MODEL` and redeploy.
 
 ### F4. Responsive Design Check (Optional)
 
@@ -235,7 +237,8 @@ TravelMate uses reminders (notifications for upcoming itineraries). The backend 
 | **API returns 500** | Missing or invalid env vars | Check Vercel > Settings > Environment Variables; redeploy after changes. |
 | **API returns 401 on /health** | Missing `FIREBASE_SERVICE_ACCOUNT` | Paste the full service-account JSON (on one line) into Vercel env. |
 | **Web loads but chat is blank** | `VITE_API_BASE_URL` is wrong | In Vercel web project, check `VITE_API_BASE_URL` matches your actual API URL (no trailing slash). |
-| **AI returns errors but doesn't fall back to Groq** | `AI_FALLBACK_PROVIDER` or `GROQ_API_KEY` missing | Add both to API project env vars and redeploy. |
+| **Chat says "The AI planner is temporarily unavailable"** | Both AI models failed | Vercel > API project > Logs, search `primary and fallback providers failed`: it lists provider, model, status and message for both. 404 = model name wrong or retired; 429 = free quota used up; 400 = bad key. |
+| **Chat says "The AI is busy right now"** | Free per-minute quota hit on both models | Wait a minute; check the limits in AI Studio. |
 | **Cron job returns 401** | `CRON_SECRET` doesn't match header | In cron-job.org, check the `Authorization` header includes the exact secret (case-sensitive). |
 | **Firebase Auth fails** | Vercel domain not in authorized domains | In Firebase Console, add the `*.vercel.app` domain under Authentication > Settings > Authorized domains. |
 | **Vercel build fails** | Missing `VITE_FIREBASE_*` env vars on web project | Add all six Firebase config vars (API Key, Auth Domain, Project ID, etc.) to the web project env. |

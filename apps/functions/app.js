@@ -8,6 +8,7 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { llmChat } = require("./src/services/llm.service");
+const { AIProviderError } = require("./src/services/aiProvider.service");
 const {
   extractAreaHint,
 } = require("./src/services/maps.service");
@@ -796,6 +797,18 @@ function buildNearbyPlacesQuery(userText = "") {
   return raw;
 }
 
+// Answer before the 120s Vercel limit; a platform 504 has no CORS headers and the
+// browser would report it as a lost connection.
+const CHAT_DEADLINE_MS = Number(process.env.CHAT_DEADLINE_MS) || 100_000;
+
+function withDeadline(promise, ms) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new AIProviderError("Chat request exceeded its time budget.", { status: 504 })), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 // ✅ Back-compat: accept either {messages:[...]} or {message:"..."} payloads
 function normalizeIncomingMessages(body) {
   const b = body || {};
@@ -1195,7 +1208,7 @@ app.post("/v1/chat", attachAuthContext, chatRateLimit, aiProviderIpRateLimit, as
       });
     }
 
-    const rawReply = await llmChat(assembledMessages, {
+    const rawReply = await withDeadline(llmChat(assembledMessages, {
       userProfile: profileData,
       appContext: {
         uid: verifiedUid || "",
@@ -1205,7 +1218,7 @@ app.post("/v1/chat", attachAuthContext, chatRateLimit, aiProviderIpRateLimit, as
         location: locationContext,
         closedPlaceReports,
       },
-    });
+    }), CHAT_DEADLINE_MS);
     const reply = dedupeConsecutiveParagraphs(rawReply);
 
     const isItinerary = detectItineraryReply(reply);
@@ -1218,14 +1231,31 @@ app.post("/v1/chat", attachAuthContext, chatRateLimit, aiProviderIpRateLimit, as
     });
   } catch (e) {
     const message = String(e?.message || e || "chat-failed");
+    const isProviderError = e?.name === "AIProviderError";
     logger.error("chat failed", {
       err: message,
-      stack: e?.stack || null,
+      status: Number(e?.status) || null,
+      primary: e?.primaryError ? String(e.primaryError.message || "").slice(0, 300) : null,
+      fallback: e?.fallbackError ? String(e.fallbackError.message || "").slice(0, 300) : null,
+      stack: isProviderError ? null : e?.stack || null,
     });
+    if (res.headersSent) return;
 
-    return res.status(500).json({
+    // Provider text (model names, quota details) is for the logs only.
+    const status = isProviderError && [429, 504].includes(Number(e.status)) ? Number(e.status) : isProviderError ? 503 : 500;
+    if (status === 429) {
+      const retryAfter = Number.parseInt(e?.retryAfter, 10);
+      res.set("Retry-After", String(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60));
+    }
+    return res.status(status).json({
       ok: false,
-      error: message,
+      error: status === 429
+        ? "The AI is busy right now. Please try again in a minute."
+        : status === 504
+          ? "Planning is taking longer than usual. Please try again in a moment."
+          : status === 500
+            ? "Something went wrong while planning your trip. Please try again."
+            : "The AI planner is temporarily unavailable. Please try again shortly.",
     });
   }
 });
@@ -1495,4 +1525,5 @@ async function runReminderSweep() {
   }
 }
 
-module.exports = { app, runReminderSweep, extractTimedItemsByDay };
+// Vercel also auto-detects app.js as an Express entry, which needs the app as the default export.
+module.exports = Object.assign(app, { app, runReminderSweep, extractTimedItemsByDay });

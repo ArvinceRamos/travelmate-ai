@@ -5,19 +5,24 @@
  * No external dependencies required.
  */
 
-const buckets = new Map();
+// One map per limiter: limiters stacked on a route must not count the same request twice.
+const limiterBuckets = new Set();
 
 // Evict stale entries every 5 minutes to prevent memory growth.
 setInterval(() => {
   const cutoff = Date.now() - 120_000;
-  for (const [key, timestamps] of buckets) {
-    const fresh = timestamps.filter((t) => t > cutoff);
-    if (fresh.length === 0) buckets.delete(key);
-    else buckets.set(key, fresh);
+  for (const buckets of limiterBuckets) {
+    for (const [key, timestamps] of buckets) {
+      const fresh = timestamps.filter((t) => t > cutoff);
+      if (fresh.length === 0) buckets.delete(key);
+      else buckets.set(key, fresh);
+    }
   }
 }, 300_000).unref();
 
 function rateLimit({ windowMs = 60_000, maxRequests = 30, keyByIp = false } = {}) {
+  const buckets = new Map();
+  limiterBuckets.add(buckets);
   return (req, res, next) => {
     // Trust req.ip because the app sets trust proxy; clients can spoof the header directly.
     const uid = req._verifiedUid || "";

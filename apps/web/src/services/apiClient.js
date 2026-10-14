@@ -118,8 +118,13 @@ async function postJson(endpoint, payload, extraHeaders = {}, options = {}) {
   const { json, text } = await readBodySafe(res);
 
   if (!res.ok) {
+    // Non-JSON bodies come from the hosting platform (timeouts, crashes), not from our API.
     const msg =
-      json?.error || json?.message || text || `Request failed (${res.status})`;
+      json?.error ||
+      json?.message ||
+      (res.status === 429
+        ? "The AI is busy right now. Please try again in a minute."
+        : "The AI planner is temporarily unavailable. Please try again shortly.");
     throw new Error(msg);
   }
 

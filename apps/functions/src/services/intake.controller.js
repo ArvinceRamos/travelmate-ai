@@ -14,7 +14,11 @@ const {
   geocodeArea,
   searchAreaCandidates,
 } = require("./maps.service");
-const { inferCountryForKnownDestination, extractExplicitCountryFromUserText } = require("./intake.understand");
+const {
+  inferCountryForKnownDestination,
+  extractExplicitCountryFromUserText,
+  extractDeterministicTripFieldsFromText,
+} = require("./intake.understand");
 const { settingsFor } = require("./aiProvider.service");
 
 const TRIP_CONTROLLER_SCHEMA = {
@@ -872,8 +876,10 @@ function latestUserIsComplaintOrMeta(text = "") {
   }
   if (/\b(?:food|foods|local\s+food|famous\s+food|nightlife|bars?|drinks?|church(?:es)?|cathedral|basilica|shrine|camp\s+sawi|strawberry\s+farm)\b[\s\S]{0,80}\b(?:add|include|put|itinerary|trip|plan)\b/i.test(raw)) return false;
   if (latestUserIsPositiveMetaAcknowledgement(raw)) return true;
+  // "no special requests" answers the intake question; it is not a complaint about them.
+  const scrubbed = raw.replace(/\b(?:no|none|nothing|without|zero)\b[^.!?\n]{0,12}\bspecial\s+requests?\b/gi, " ");
   return (
-    /\b(?:i\s+didn['’]?t\s+ask|i\s+did\s+not\s+ask|didn['’]?t\s+ask\s+for|did\s+not\s+ask\s+for|why\s+did\s+you|why\s+are\s+you|why\s+do\s+you|you\s+added|you\s+put|add(?:ed)?\s+(?:that|it)|you\s+cut\s+off|cut\s+off\s+the\s+conversation|you\s+didn['’]?t\s+finish|you\s+did\s+not\s+finish|your\s+reply\s+was\s+incomplete|you\s+didn['’]?t\s+answer|you\s+did\s+not\s+answer|trip\s+summary|special\s+requests?|that\s+(?:is|was|'s)\s+fallback|fallback[-\s]?style|don['’]?t\s+use\s+fallback|do\s+not\s+use\s+fallback|not\s+(?:an?\s+)?itinerary|unwanted\s+itinerary)\b/i.test(raw) ||
+    /\b(?:i\s+didn['’]?t\s+ask|i\s+did\s+not\s+ask|didn['’]?t\s+ask\s+for|did\s+not\s+ask\s+for|why\s+did\s+you|why\s+are\s+you|why\s+do\s+you|you\s+added|you\s+put|add(?:ed)?\s+(?:that|it)|you\s+cut\s+off|cut\s+off\s+the\s+conversation|you\s+didn['’]?t\s+finish|you\s+did\s+not\s+finish|your\s+reply\s+was\s+incomplete|you\s+didn['’]?t\s+answer|you\s+did\s+not\s+answer|trip\s+summary|special\s+requests?|that\s+(?:is|was|'s)\s+fallback|fallback[-\s]?style|don['’]?t\s+use\s+fallback|do\s+not\s+use\s+fallback|not\s+(?:an?\s+)?itinerary|unwanted\s+itinerary)\b/i.test(scrubbed) ||
     /^\s*(?:no|nah|nope),?\s*(?:i\s+)?(?:didn'?t|did\s+not)\s+ask\b/i.test(raw)
   );
 }
@@ -4316,6 +4322,19 @@ function appendRecommendationNextStep(reply = "", tripContext = {}) {
   return `${text}\n\n${prompt}`;
 }
 
+// The model sometimes drops details the user plainly typed; don't ask for them again.
+function fillMissingTripFieldsFromUserTurns(tripContext = {}, recent = []) {
+  const filled = { ...tripContext };
+  for (const turn of recent) {
+    if (turn?.role !== "user") continue;
+    const found = extractDeterministicTripFieldsFromText(String(turn.content || ""), {});
+    for (const key of ["date", "travelers", "budget", "origin"]) {
+      if (!filled[key] && found[key]) filled[key] = found[key];
+    }
+  }
+  return filled;
+}
+
 function appendBlueprintIfSetupCompletedAfterRecommendation({
   normalizedParsed = {},
   recent = [],
@@ -4332,6 +4351,16 @@ function appendBlueprintIfSetupCompletedAfterRecommendation({
     base: tripContext.baseArea || (tripContext.noHotelYet ? "noHotelYet" : null),
   });
   if (!should) {
+    // A pre-generation hotel answer must still end on a question, or the user's next
+    // "yes" has nothing to confirm and the trip context is lost.
+    if (!cleanSections.length || recent.some((turn) => turn?.role === "assistant" && looksLikeFinalItineraryText(turn.content))) {
+      return cleanSections;
+    }
+    const next = nextMissingFinalQuestion(fillMissingTripFieldsFromUserTurns(tripContext, recent));
+    if (next) return [...cleanSections, next[1]];
+    if (tripSummaryAlreadyVisibleInRecent(recent) && tripContext.essentialsComplete) {
+      return [...cleanSections, buildGenerateItineraryQuestion(formatIntakeDestination(tripContext) || latestUser)];
+    }
     return cleanSections;
   }
   return [
@@ -7818,8 +7847,11 @@ async function processIntakeTurn(client, { messages = [], appContext = {} } = {}
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.intent || !parsed.tripContext || typeof parsed.replyText !== "string") return null;
 
-    const formatted = enforceBulletedTripSummaryFormat(enforceBulletedRecommendationFormat(parsed));
-    return enforceBundledIntakeQuestionDecision(await enforceIntakeRecommendationSections(formatted, recent, appContext), recent);
+    const todayISO = appContext?.todayISO;
+    const formatted = enforceBulletedTripSummaryFormat(enforceBulletedRecommendationFormat(rollPastTripDatesForward(parsed, recent, todayISO)));
+    return rollPastTripDatesForward(ensureTripSummaryHeading(
+      enforceBundledIntakeQuestionDecision(await enforceIntakeRecommendationSections(formatted, recent, appContext), recent)
+    ), recent, todayISO);
   } catch (error) {
     console.warn("[intake.controller] failed", { err: String(error?.message || error || "") });
     return null;
@@ -7880,6 +7912,42 @@ function enforceBulletedRecommendationFormat(decision) {
   return formatted === decision.replyText ? decision : { ...decision, replyText: formatted };
 }
 
+// Smaller models sometimes give a month/day the user typed without a year a year that
+// has already passed ("May 25" in October -> this May). Trips are planned ahead.
+function rollPastTripDatesForward(decision, recent = [], todayISO = "") {
+  if (!decision || typeof decision !== "object") return decision;
+  if (recent.some((turn) => turn?.role === "user" && /\b20\d{2}\b/.test(String(turn.content || "")))) return decision;
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(String(todayISO || "")) ? String(todayISO) : new Date().toISOString().slice(0, 10);
+  const tripContext = decision.tripContext && typeof decision.tripContext === "object" ? { ...decision.tripContext } : decision.tripContext;
+  const iso = String(tripContext?.date || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso && iso[0] < today) tripContext.date = `${Number(iso[1]) + 1}-${iso[2]}-${iso[3]}`;
+
+  let replyText = decision.replyText;
+  if (typeof replyText === "string" && looksLikeBlueprintReply(replyText)) {
+    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const monthRx = months.join("|");
+    replyText = replyText.replace(
+      new RegExp(`\\b(${monthRx})\\s+(\\d{1,2})((?:\\s*[–-]\\s*(?:(?:${monthRx})\\s+)?\\d{1,2})?),\\s*(20\\d{2})\\b`, "g"),
+      (match, month, day, rest, year) => {
+        const startIso = `${year}-${String(months.indexOf(month) + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        return startIso < today ? `${month} ${day}${rest}, ${Number(year) + 1}` : match;
+      }
+    );
+  }
+  return { ...decision, tripContext, replyText };
+}
+
+// The confirm-before-generate gates look for a "Trip summary" heading; smaller models leave it out.
+function ensureTripSummaryHeading(decision) {
+  if (!decision || decision.intent !== "show_blueprint" || typeof decision.replyText !== "string") return decision;
+  const text = decision.replyText;
+  if (/\btrip\s+summary\b/i.test(text)) return decision;
+  const match = text.match(/(^|\n)[ \t]*[-*][ \t]+\*\*(?:Destination|Origin|Dates)\b/i);
+  if (!match) return decision;
+  const at = match.index + match[1].length;
+  return { ...decision, replyText: `${text.slice(0, at)}**Trip summary:**\n\n${text.slice(at)}` };
+}
+
 function enforceBulletedTripSummaryFormat(decision) {
   if (!decision || typeof decision.replyText !== "string") return decision;
   const text = decision.replyText;
@@ -7927,6 +7995,10 @@ function enforceBulletedTripSummaryFormat(decision) {
 
 module.exports = {
   applyDestinationSwitchInheritance,
+  appendBlueprintIfSetupCompletedAfterRecommendation,
+  ensureTripSummaryHeading,
+  latestUserIsComplaintOrMeta,
+  rollPastTripDatesForward,
   buildCanonicalIntakeBlueprintReply,
   buildDestinationSwitchPrompt,
   buildTripSwitchFreshDetailsQuestion,

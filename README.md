@@ -9,7 +9,7 @@ Travelmate AI is a travel-planning app with chat-based itinerary planning, saved
 - Node.js 20 Cloud Functions API
 - Photon place search, Nominatim reverse geocoding, Overpass nearby places, and OSRM routing
 - Open-Meteo weather
-- Configurable AI providers: Ollama locally, OpenAI with API credits, and Gemini as an optional free-tier fallback
+- Configurable AI providers: Ollama locally, free Gemini models (primary + fallback) when hosted, plus OpenAI and Groq adapters
 
 ## Local Setup
 
@@ -59,18 +59,19 @@ The demo project ID prevents accidental access to live Firebase resources. The F
 
 ## Optional Hosted AI
 
-Ollama is the no-key default. For a paid-primary setup with an automatic free-provider fallback, set these backend-only values in `apps/functions/.env` (or the backend host's secret manager):
+Ollama is the no-key default. The deployed site uses two free Gemini models, each with its own free quota. Set these backend-only values in `apps/functions/.env` (or the Vercel API project's environment variables):
 
 ```dotenv
-AI_PROVIDER=openai
-AI_MODEL=gpt-4o-mini
-OPENAI_API_KEY=your-openai-api-key
+AI_PROVIDER=gemini
+AI_MODEL=gemini-3.5-flash-lite
 AI_FALLBACK_PROVIDER=gemini
-AI_FALLBACK_MODEL=gemini-2.5-flash
+AI_FALLBACK_MODEL=gemini-3.1-flash-lite
+AI_MAX_TOKENS=4096
+LLM_FIRST_INTAKE=1
 GEMINI_API_KEY=your-gemini-api-key
 ```
 
-Create the OpenAI key in the [API Platform](https://platform.openai.com/api-keys) and monitor its API balance and spend limits. ChatGPT/Codex credits are separate from API credit. OpenAI is attempted first; on provider errors (including exhausted credit or rate limiting), the backend attempts Gemini. Create the Gemini key in [Google AI Studio](https://aistudio.google.com/app/apikey); its free-tier model quota varies by project/model and is not guaranteed. The backend limits chat to 10 requests/minute per IP and propagates provider `Retry-After` when the request cannot be served. Keep both keys server-side; never put them in `VITE_*` variables. Keep Ollama as `AI_PROVIDER=ollama` for the completely local, no-key path.
+The primary model is attempted first; on provider errors (retired model, quota, overload), the backend attempts the fallback model and logs both failures. `openai` and `groq` (`openai/gpt-oss-120b`) are also supported providers, but OpenAI is paid and Groq's free 8K tokens/minute cannot fit the itinerary prompt. Create the Gemini key in [Google AI Studio](https://aistudio.google.com/app/apikey); its free-tier model quota varies by project/model and is not guaranteed. The backend limits chat to 10 requests/minute per IP and propagates provider `Retry-After` when the request cannot be served. Keep keys server-side; never put them in `VITE_*` variables. Keep Ollama as `AI_PROVIDER=ollama` for the completely local, no-key path.
 
 ## Free Data Services
 

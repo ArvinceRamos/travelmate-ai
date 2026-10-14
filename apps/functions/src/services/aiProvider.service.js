@@ -1,5 +1,7 @@
 "use strict";
 
+const logger = require("firebase-functions/logger");
+
 class AIProviderError extends Error {
   constructor(message, { status = 502, retryAfter = null } = {}) {
     super(message);
@@ -18,8 +20,8 @@ function providerDefaultBase(provider) {
 
 function providerDefaultModel(provider) {
   if (provider === "openai") return "gpt-4o-mini";
-  if (provider === "gemini") return "gemini-2.5-flash";
-  if (provider === "groq") return "llama-3.3-70b-versatile";
+  if (provider === "gemini") return "gemini-3.5-flash-lite";
+  if (provider === "groq") return "openai/gpt-oss-120b";
   return "qwen2.5:7b";
 }
 
@@ -60,6 +62,20 @@ function schemaFromFormat(responseFormat) {
     : null;
 }
 
+// Gemini's responseJsonSchema accepts standard JSON Schema (nullable type arrays,
+// additionalProperties) but only string/number enum values; nulls stay allowed via the type.
+function geminiJsonSchema(schema) {
+  if (Array.isArray(schema)) return schema.map(geminiJsonSchema);
+  if (!schema || typeof schema !== "object") return schema;
+  const out = {};
+  for (const [key, value] of Object.entries(schema)) {
+    out[key] = key === "enum" && Array.isArray(value)
+      ? value.filter((item) => item !== null)
+      : geminiJsonSchema(value);
+  }
+  return out;
+}
+
 async function fetchProvider(url, options, timeoutMs = 45_000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -87,7 +103,7 @@ async function fetchProvider(url, options, timeoutMs = 45_000) {
   }
 }
 
-async function requestCompletion(settings, request) {
+async function requestCompletion(settings, request, timeoutMs) {
   const { provider, baseUrl, model, apiKey } = settings;
   const responseFormat = request.response_format;
   if (provider !== "ollama" && !apiKey) {
@@ -96,8 +112,9 @@ async function requestCompletion(settings, request) {
 
   let content;
   if (provider === "openai" || provider === "groq") {
-    // Groq only supports json_schema on a few models, so ask for plain JSON mode there.
-    const format = provider === "groq" && responseFormat?.type === "json_schema" ? { type: "json_object" } : responseFormat;
+    // Groq supports json_schema only on its gpt-oss models; ask the others for plain JSON mode.
+    const gptOss = /gpt-oss/i.test(model);
+    const format = provider === "groq" && !gptOss && responseFormat?.type === "json_schema" ? { type: "json_object" } : responseFormat;
     const data = await fetchProvider(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -109,9 +126,11 @@ async function requestCompletion(settings, request) {
         messages: request.messages,
         temperature: request.temperature,
         max_completion_tokens: request.max_completion_tokens,
+        // gpt-oss reasons before answering and those tokens count against max_completion_tokens.
+        ...(gptOss ? { reasoning_effort: "low" } : {}),
         ...(format ? { response_format: format } : {}),
       }),
-    });
+    }, timeoutMs);
     content = data?.choices?.[0]?.message?.content;
   } else if (provider === "gemini") {
     const system = request.messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
@@ -125,18 +144,17 @@ async function requestCompletion(settings, request) {
       ...(responseFormat?.type === "json_object" || responseFormat?.type === "json_schema"
         ? { responseMimeType: "application/json" }
         : {}),
-      ...(schemaFromFormat(responseFormat) ? { responseSchema: schemaFromFormat(responseFormat) } : {}),
+      ...(schemaFromFormat(responseFormat) ? { responseJsonSchema: geminiJsonSchema(schemaFromFormat(responseFormat)) } : {}),
     };
-    const params = new URLSearchParams({ key: apiKey });
-    const data = await fetchProvider(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent?${params}`, {
+    const data = await fetchProvider(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
         contents,
         generationConfig,
       }),
-    });
+    }, timeoutMs);
     content = (data?.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join("");
   } else if (provider === "ollama") {
     const data = await fetchProvider(`${baseUrl}/api/chat`, {
@@ -150,7 +168,7 @@ async function requestCompletion(settings, request) {
         ...(schemaFromFormat(responseFormat) ? { format: schemaFromFormat(responseFormat) } : {}),
         options: { temperature: request.temperature, num_predict: request.max_completion_tokens },
       }),
-    });
+    }, timeoutMs);
     content = data?.message?.content;
   } else {
     throw new AIProviderError(`Unsupported AI_PROVIDER: ${provider}`, { status: 400 });
@@ -162,15 +180,45 @@ async function requestCompletion(settings, request) {
   return { choices: [{ message: { content: normalizedContent } }] };
 }
 
-async function complete(request) {
+function failureDetails(settings, error) {
+  return {
+    provider: settings.provider,
+    model: settings.model,
+    status: Number(error?.status) || null,
+    message: String(error?.message || error || "").slice(0, 300),
+  };
+}
+
+async function complete(request, options = {}) {
   const primary = settingsFor(process.env.AI_PROVIDER || "ollama");
+  const timeoutMs = Number(options?.timeout) || undefined;
   try {
-    return await requestCompletion(primary, request);
+    return await requestCompletion(primary, request, timeoutMs);
   } catch (primaryError) {
     const fallbackProvider = String(process.env.AI_FALLBACK_PROVIDER || "").trim().toLowerCase();
-    if (!fallbackProvider || fallbackProvider === primary.provider) throw primaryError;
-    const fallback = settingsFor(fallbackProvider, true);
-    return requestCompletion(fallback, request);
+    const fallback = fallbackProvider ? settingsFor(fallbackProvider, true) : null;
+    // A second model on the same provider (e.g. another Gemini Flash-Lite) has its own free quota.
+    if (!fallback || (fallback.provider === primary.provider && fallback.model === primary.model)) {
+      logger.warn("[ai] provider failed", failureDetails(primary, primaryError));
+      throw primaryError;
+    }
+    try {
+      return await requestCompletion(fallback, request, timeoutMs);
+    } catch (fallbackError) {
+      logger.warn("[ai] primary and fallback providers failed", {
+        primary: failureDetails(primary, primaryError),
+        fallback: failureDetails(fallback, fallbackError),
+      });
+      const rateLimited = [primaryError, fallbackError].find((error) => error?.status === 429);
+      const timedOut = primaryError?.status === 504 && fallbackError?.status === 504;
+      const error = new AIProviderError("All AI providers failed.", {
+        status: rateLimited ? 429 : timedOut ? 504 : 503,
+        retryAfter: rateLimited?.retryAfter || null,
+      });
+      error.primaryError = primaryError;
+      error.fallbackError = fallbackError;
+      throw error;
+    }
   }
 }
 

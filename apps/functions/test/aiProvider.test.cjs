@@ -135,7 +135,8 @@ test("OpenAI quota errors fall back to Gemini using backend-only provider creden
     assert.equal(seen.length, 2);
     assert.equal(seen[0].headers.Authorization, "Bearer server-openai-test-key");
     assert.match(seen[1].url, /generativelanguage\.googleapis\.com/);
-    assert.ok(seen[1].url.includes("key=server-gemini-test-key"));
+    assert.equal(seen[1].headers["x-goog-api-key"], "server-gemini-test-key");
+    assert.ok(!seen[1].url.includes("key="));
   } finally {
     global.fetch = originalFetch;
     for (const key of Object.keys(process.env)) if (!(key in old)) delete process.env[key];
@@ -170,11 +171,110 @@ test("Gemini failures fall back to Groq through its OpenAI-compatible endpoint",
     assert.equal(seen.length, 2);
     assert.equal(seen[1].url, "https://api.groq.com/openai/v1/chat/completions");
     assert.equal(seen[1].headers.Authorization, "Bearer server-groq-test-key");
-    assert.equal(seen[1].body.model, "llama-3.3-70b-versatile");
-    assert.equal(seen[1].body.response_format.type, "json_object");
+    assert.equal(seen[1].body.model, "openai/gpt-oss-120b");
+    assert.equal(seen[1].body.reasoning_effort, "low");
+    assert.equal(seen[1].body.response_format.type, "json_schema");
   } finally {
     global.fetch = originalFetch;
     for (const key of Object.keys(process.env)) if (!(key in old)) delete process.env[key];
     Object.assign(process.env, old);
   }
+});
+
+async function withProviders(env, handler, run) {
+  const old = { ...process.env };
+  const originalFetch = global.fetch;
+  for (const key of ["AI_MODEL", "AI_BASE_URL", "AI_FALLBACK_MODEL", "AI_FALLBACK_BASE_URL", "AI_FALLBACK_PROVIDER"]) delete process.env[key];
+  Object.assign(process.env, env);
+  const seen = [];
+  global.fetch = async (url, options) => {
+    const call = { url: String(url), headers: options.headers, body: JSON.parse(options.body) };
+    seen.push(call);
+    return handler(call);
+  };
+  try {
+    await run(seen);
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of Object.keys(process.env)) if (!(key in old)) delete process.env[key];
+    Object.assign(process.env, old);
+  }
+}
+
+const geminiReply = (text) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), { status: 200 });
+
+test("Gemini gets nullable JSON schemas through responseJsonSchema without null enum values", async () => {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["budget"],
+    properties: { budget: { type: ["string", "null"], enum: ["budget", "luxury", null] } },
+  };
+  await withProviders({ AI_PROVIDER: "gemini", GEMINI_API_KEY: "k" }, () => geminiReply('{"budget":null}'), async (seen) => {
+    await getAIClient().chat.completions.create({
+      messages: [{ role: "user", content: "Return JSON." }],
+      response_format: { type: "json_schema", json_schema: { name: "r", strict: true, schema } },
+    });
+    const config = seen[0].body.generationConfig;
+    assert.equal(config.responseSchema, undefined);
+    assert.equal(config.responseJsonSchema.additionalProperties, false);
+    assert.deepEqual(config.responseJsonSchema.properties.budget, { type: ["string", "null"], enum: ["budget", "luxury"] });
+    assert.deepEqual(schema.properties.budget.enum, ["budget", "luxury", null]);
+    assert.match(seen[0].url, /models\/gemini-3\.5-flash-lite:generateContent$/);
+  });
+});
+
+test("Groq models without json_schema support are asked for plain JSON mode", async () => {
+  await withProviders(
+    { AI_PROVIDER: "groq", GROQ_API_KEY: "k", AI_MODEL: "llama-4-scout" },
+    () => new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 }),
+    async (seen) => {
+      await getAIClient().chat.completions.create({
+        messages: [{ role: "user", content: "Return JSON." }],
+        response_format: { type: "json_schema", json_schema: { name: "r", schema: { type: "object" } } },
+      });
+      assert.equal(seen[0].body.response_format.type, "json_object");
+      assert.equal(seen[0].body.reasoning_effort, undefined);
+    }
+  );
+});
+
+test("a second model on the same provider works as the fallback", async () => {
+  await withProviders(
+    { AI_PROVIDER: "gemini", GEMINI_API_KEY: "k", AI_FALLBACK_PROVIDER: "gemini", AI_FALLBACK_MODEL: "gemini-3.1-flash-lite" },
+    (call) => call.url.includes("gemini-3.5-flash-lite")
+      ? new Response(JSON.stringify({ error: { message: "quota" } }), { status: 429 })
+      : geminiReply("Fallback reply"),
+    async (seen) => {
+      const result = await getAIClient().chat.completions.create({ messages: [{ role: "user", content: "Hi" }] });
+      assert.equal(result.choices[0].message.content, "Fallback reply");
+      assert.match(seen[1].url, /models\/gemini-3\.1-flash-lite:generateContent$/);
+    }
+  );
+});
+
+test("when both providers fail the error keeps both causes and prefers a 429 status", async () => {
+  const fail = (status, message, headers = {}) => new Response(JSON.stringify({ error: { message } }), { status, headers });
+  await withProviders(
+    { AI_PROVIDER: "gemini", GEMINI_API_KEY: "k", AI_FALLBACK_PROVIDER: "groq", GROQ_API_KEY: "g" },
+    (call) => call.url.includes("generativelanguage") ? fail(404, "model not found") : fail(429, "slow down", { "Retry-After": "12" }),
+    async () => {
+      const error = await getAIClient().chat.completions.create({ messages: [{ role: "user", content: "Hi" }] }).catch((e) => e);
+      assert.equal(error.name, "AIProviderError");
+      assert.equal(error.status, 429);
+      assert.equal(error.retryAfter, "12");
+      assert.equal(error.primaryError.status, 404);
+      assert.equal(error.primaryError.message, "model not found");
+      assert.equal(error.fallbackError.status, 429);
+      assert.doesNotMatch(error.message, /model|quota|llama/i);
+    }
+  );
+  await withProviders(
+    { AI_PROVIDER: "gemini", GEMINI_API_KEY: "k", AI_FALLBACK_PROVIDER: "groq", GROQ_API_KEY: "g" },
+    () => fail(404, "The model llama-3.3-70b-versatile does not exist"),
+    async () => {
+      const error = await getAIClient().chat.completions.create({ messages: [{ role: "user", content: "Hi" }] }).catch((e) => e);
+      assert.equal(error.status, 503);
+    }
+  );
 });

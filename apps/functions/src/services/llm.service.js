@@ -1,4 +1,5 @@
 const { getAIClient, settingsFor } = require("./aiProvider.service");
+const { AsyncLocalStorage } = require("async_hooks");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -2820,7 +2821,8 @@ function previousAssistantIsBlueprint(messages = []) {
 function previousAssistantAskedExactGenerateItineraryCta(messages = []) {
   const lastAssistant = [...messages].reverse().find((m) => m && m.role === "assistant");
   const text = String(lastAssistant?.content || "").trim();
-  return /(?:Should I generate (?:the full itinerary|the updated \d{1,2}-day itinerary) now\?|Ready for me to generate (?:the full itinerary|the updated \d{1,2}-day itinerary|the itinerary)\?|Want me to generate .*itinerary.*\?|Shall I turn this into .*itinerary.*\?|Ready for the itinerary draft based on this summary\?)\s*$/i.test(text);
+  // Models phrase the closing question freely ("Would you like me to generate your full itinerary now?").
+  return /(?:Should I (?:generate|build|create|draft) .*itinerary.*\?|Ready (?:for me )?to (?:generate|build|create) .*itinerary.*\?|(?:Want|Would you like|Do you want|Shall I|Should I) (?:me to )?(?:generate|build|create|draft|turn this into) .*itinerary.*\?|Shall I turn this into .*itinerary.*\?|Ready for the itinerary draft based on this summary\?)\**\s*$/i.test(text);
 }
 
 function latestUserExplicitlyRequestsItineraryGeneration(text = "") {
@@ -16953,6 +16955,46 @@ function getItineraryProviderValidationSkipReason(stop = {}, activity = null) {
   return "";
 }
 
+// Each stop can take several free-geocoder searches and the repair loop re-validates
+// several times; unbounded, that pushed a single turn past the 120s function limit.
+const STOP_RESOLUTION_CONCURRENCY = 4;
+const STOP_RESOLUTION_BUDGET_MS = 20_000;
+const STOP_VALIDATION_TURN_BUDGET_MS = 30_000;
+const STOP_RESOLUTION_TIMED_OUT = Symbol("stop-resolution-timed-out");
+
+async function resolveItineraryStopsWithinBudget(stops = [], anchor = {}, timeZone = "") {
+  const results = new Map();
+  const turnDeadline = chatTurnState.getStore()?.stopValidationDeadline || Infinity;
+  const deadline = Math.min(Date.now() + STOP_RESOLUTION_BUDGET_MS, turnDeadline);
+  const queue = [...stops];
+  const worker = async () => {
+    while (queue.length) {
+      const stop = queue.shift();
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        results.set(stop, STOP_RESOLUTION_TIMED_OUT);
+        continue;
+      }
+      let timer;
+      try {
+        results.set(stop, await Promise.race([
+          resolveItineraryStopPlace(stop, anchor, timeZone),
+          new Promise((resolve) => { timer = setTimeout(() => resolve(STOP_RESOLUTION_TIMED_OUT), remainingMs); }),
+        ]));
+      } catch (e) {
+        console.warn("[Places] resolveItineraryStopPlace failed:", String(e?.message || e || ""));
+        results.set(stop, null);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(STOP_RESOLUTION_CONCURRENCY, queue.length) }, worker));
+  const timedOut = [...results.values()].filter((value) => value === STOP_RESOLUTION_TIMED_OUT).length;
+  if (timedOut) console.warn("[Places] itinerary stop validation hit its time budget", { timedOut, total: stops.length });
+  return results;
+}
+
 async function validateItineraryStopsAgainstProviderHours(replyText = "", validatedMapStops = null, options = {}) {
   if (!validatedMapStops || typeof validatedMapStops !== "object") {
     return { mapStops: validatedMapStops, violations: [] };
@@ -16973,15 +17015,22 @@ async function validateItineraryStopsAgainstProviderHours(replyText = "", valida
   const violations = [];
   const anchor = normalizeItineraryMapAnchor(validatedMapStops.anchor || {}, replyText);
   const timeZone = String(options.timeZone || "").trim();
+  const allStops = Array.isArray(validatedMapStops.mapStops) ? validatedMapStops.mapStops : [];
+  const stopsToResolve = allStops.filter((stop) => {
+    const activity = activityIndex.get(`${stop.day}|${stop.order}`.toLowerCase());
+    return activity && !getItineraryProviderValidationSkipReason(stop, activity);
+  });
+  const resolvedByStop = await resolveItineraryStopsWithinBudget(stopsToResolve, anchor, timeZone);
 
-  for (const stop of Array.isArray(validatedMapStops.mapStops) ? validatedMapStops.mapStops : []) {
+  for (const stop of allStops) {
     const activity = activityIndex.get(`${stop.day}|${stop.order}`.toLowerCase());
     if (!activity) {
       enrichedStops.push(stop);
       continue;
     }
 
-    const validationSkipReason = getItineraryProviderValidationSkipReason(stop, activity);
+    const validationSkipReason = getItineraryProviderValidationSkipReason(stop, activity) ||
+      (resolvedByStop.get(stop) === STOP_RESOLUTION_TIMED_OUT ? "provider_time_budget" : "");
     if (validationSkipReason) {
       const nextStop = {
         ...stop,
@@ -16993,13 +17042,7 @@ async function validateItineraryStopsAgainstProviderHours(replyText = "", valida
       continue;
     }
 
-    let resolvedPlace = null;
-    try {
-      resolvedPlace = await resolveItineraryStopPlace(stop, anchor, timeZone);
-    } catch (e) {
-      console.warn("[Places] resolveItineraryStopPlace failed:", String(e?.message || e || ""));
-      resolvedPlace = null;
-    }
+    const resolvedPlace = resolvedByStop.get(stop) || null;
 
     const nextStop = { ...stop };
     if (resolvedPlace?.id) nextStop.placeId = resolvedPlace.id;
@@ -19092,7 +19135,8 @@ async function callChatCompletion(client, { model, messages, temperature, max_co
         err?.code === "ETIMEDOUT" ||
         err?.name === "APIConnectionTimeoutError";
 
-      if (!retriable || attempt === MAX_ATTEMPTS) break;
+      // Primary and fallback already both failed inside complete(); retrying doubles the calls.
+      if (!retriable || attempt === MAX_ATTEMPTS || err?.fallbackError) break;
 
       const retryAfter = err?.retryAfter || err?.headers?.["retry-after"];
       const retryAfterMs = retryAfter
@@ -19296,7 +19340,7 @@ async function rewriteItineraryStrict(client, { model, originalReply, baseMessag
     model,
     messages: repairMessages,
     temperature: 0.2,
-    max_completion_tokens: 2500,
+    max_completion_tokens: Math.max(2500, getAIMaxTokens()),
   });
 }
 
@@ -19314,7 +19358,7 @@ async function rewriteItineraryToRemoveDuplicates(client, { model, reply, duplic
     const repaired = await callChatCompletion(client, {
       model,
       temperature: 0.2,
-      max_completion_tokens: 2500,
+      max_completion_tokens: Math.max(2500, getAIMaxTokens()),
       messages: [
         { role: "system", content: TRAVEL_ONLY_SYSTEM_PROMPT },
         ...contextMessages,
@@ -20773,7 +20817,15 @@ function buildDeterministicCutoffSummaryRecovery(messages = []) {
   return buildCanonicalIntakeBlueprintReply({ tripContext, pendingEdits: [] }, messages);
 }
 
-async function llmChat(messages, options = {}) {
+// Per-turn state shared by helpers deep in the pipeline (e.g. the stop-validation time budget).
+const chatTurnState = new AsyncLocalStorage();
+
+function llmChat(messages, options = {}) {
+  if (chatTurnState.getStore()) return runLlmChat(messages, options);
+  return chatTurnState.run({ stopValidationDeadline: Date.now() + STOP_VALIDATION_TURN_BUDGET_MS }, () => runLlmChat(messages, options));
+}
+
+async function runLlmChat(messages, options = {}) {
   const client = getAIProviderClient();
 
 const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
@@ -25578,6 +25630,7 @@ const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content
 }
 module.exports = {
   llmChat,
+  previousAssistantAskedExactGenerateItineraryCta,
   callChatCompletion,
   looksTravel,
   looksLikeClosedPlaceReport,
