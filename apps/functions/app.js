@@ -11,6 +11,7 @@ const { llmChat } = require("./src/services/llm.service");
 const {
   extractAreaHint,
 } = require("./src/services/maps.service");
+const { timedStops } = require("./src/utils/itineraryParse");
 
 // Firebase Admin (for logout revoke)
 const admin = require("firebase-admin");
@@ -252,66 +253,19 @@ function parseTimeOnDayMs(hhmm, baseDayMs) {
   return baseDayMs + h * 3_600_000 + min * 60_000;
 }
 
-function extractTimedItems(text = "", baseDayMs = null) {
-  const lines = String(text || "").split("\n");
-  const items = [];
-
-  for (const rawLine of lines) {
-    const line = String(rawLine || "")
-      .replace(/^\s*[-*]\s+/, "")
-      .replace(/\*\*/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!line) continue;
-
-    const m = line.match(
-  /^(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s*(?:–|-|to)\s*(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s*(?:[:\-–—]\s*)?(.*)$/i
-);
-    if (!m) continue;
-
-    const start = String(m[1] || "").trim();
-    const end = String(m[2] || "").trim();
-    const label = String(m[3] || "").trim();
-    if (!label) continue;
-
-    const whenMs = parseTimeOnDayMs(start, baseDayMs);
-    if (!whenMs) continue;
-
-    items.push({ whenMs, timeLabel: start, endLabel: end, label });
-  }
-
-  items.sort((a, b) => a.whenMs - b.whenMs);
-  return items;
-}
-
+// Same stops and labels as the browser (apps/web/src/features/notifications/timedItems.js),
+// so both sides hash the same notification IDs.
 function extractTimedItemsByDay(text = "", tripStartISO = null, tzOffsetMinutes = 0) {
-  const src = String(text || "");
   const baseMs = tripStartISO ? parseISOToLocalMidnightMs(tripStartISO, tzOffsetMinutes) : null;
-  if (!baseMs) return extractTimedItems(src, null);
-
-  const lines = src.split("\n");
-  const sections = [];
-  let current = { dayNum: 1, lines: [] };
-
-  for (const line of lines) {
-    const m = line.match(/^\s*(?:#{1,6}\s*)?Day\s*(\d+)\b/i);
-    if (m) {
-      if (current.lines.length) sections.push(current);
-      current = { dayNum: Math.max(1, Number(m[1] || 1)), lines: [] };
-      continue;
-    }
-    current.lines.push(line);
-  }
-  if (current.lines.length) sections.push(current);
+  if (!baseMs) return [];
 
   const out = [];
-  for (const sec of sections) {
-    const dayIndex = Math.max(0, (sec.dayNum || 1) - 1);
-    const dayMs = addDaysMs(baseMs, dayIndex);
-    const dayText = sec.lines.join("\n");
-    const items = extractTimedItems(dayText, dayMs);
-    out.push(...items.map((i) => ({ ...i, dayNum: sec.dayNum })));
+  for (const stop of timedStops(String(text || ""))) {
+    const dayMs = addDaysMs(baseMs, Math.max(0, stop.day - 1));
+    // The parser accepts "p.m."; parseTimeOnDayMs only knows "PM".
+    const whenMs = parseTimeOnDayMs(stop.start.replace(/\./g, ""), dayMs);
+    if (!whenMs) continue;
+    out.push({ whenMs, timeLabel: stop.start, endLabel: stop.end, label: stop.place, dayNum: stop.day });
   }
 
   out.sort((a, b) => a.whenMs - b.whenMs);
@@ -509,6 +463,8 @@ app.use(express.json({ limit: "200kb" }));
 const { rateLimit } = require("./src/middleware/rateLimit");
 const chatRateLimit = rateLimit({ windowMs: 60_000, maxRequests: 30 });
 const aiProviderIpRateLimit = rateLimit({ windowMs: 60_000, maxRequests: 10, keyByIp: true });
+// Nominatim is queued at 1 req/s, so one client can't usefully send more than ~60/min.
+const geocodeIpRateLimit = rateLimit({ windowMs: 60_000, maxRequests: 60, keyByIp: true });
 
 const SYSTEM_PROMPT_PATH = path.join(__dirname, "src", "prompts", "systemPrompt.txt");
 const SYSTEM_PROMPT = fs.existsSync(SYSTEM_PROMPT_PATH)
@@ -980,6 +936,17 @@ app.get("/v1/places/search", async (req, res) => {
     return res.json({ ok: true, data: { places } });
   } catch (e) {
     return require("./src/services/freeProviders.service").sendProviderError(res, e, "Place search is temporarily unavailable.");
+  }
+});
+
+app.get("/v1/places/geocode", geocodeIpRateLimit, async (req, res) => {
+  try {
+    const places = await require("./src/services/freeProviders.service").geocodePlace(req.query.q, {
+      lat: req.query.lat, lon: req.query.lon, limit: req.query.limit,
+    });
+    return res.json({ ok: true, data: { places } });
+  } catch (e) {
+    return require("./src/services/freeProviders.service").sendProviderError(res, e, "Place lookup is temporarily unavailable.");
   }
 });
 
@@ -1528,4 +1495,4 @@ async function runReminderSweep() {
   }
 }
 
-module.exports = { app, runReminderSweep };
+module.exports = { app, runReminderSweep, extractTimedItemsByDay };

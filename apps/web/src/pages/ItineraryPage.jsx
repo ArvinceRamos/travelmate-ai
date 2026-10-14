@@ -5,71 +5,7 @@ import { useItinerary } from "../features/itinerary/itineraryStore";
 import { useNotifications } from "../features/notifications/notificationsStore.jsx";
 import { useNavigate } from "react-router-dom";
 import { buildItineraryTitle, extractTripMetaFromText, titleLooksBad } from "../utils/tripMeta";
-
-function parseItinerary(text) {
-  if (!text) return { headerLines: [], days: [], appendixLines: [] };
-
-  const lines = String(text).split(/\r?\n/);
-  const headerLines = [];
-  const days = [];
-  const appendixLines = [];
-  let currentDay = null;
-  let inHeader = true;
-  let inAppendix = false;
-
-  const dayRe = /^Day\s+\d+\s*[—\-–].+$/i;
-  const timeRe = /^(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})\s+[-–]\s+(.+)$/;
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (/^Would you like to save this itinerary\??$/i.test(line)) continue;
-
-    const appendixLine = line.replace(/^---\s*/, "").trim();
-    const startsAppendix =
-      /^---$/.test(line) ||
-      /^#{0,3}\s*\*?\*?Estimated\s+Budget\s+Per\s+Person\*?\*?/i.test(appendixLine) ||
-      /^\*?\*?Estimated\s+total\s*:/i.test(appendixLine);
-
-    if (startsAppendix || inAppendix) {
-      inHeader = false;
-      inAppendix = true;
-      if (appendixLine && !/^---$/.test(appendixLine)) appendixLines.push(appendixLine);
-      continue;
-    }
-
-    if (dayRe.test(line)) {
-      inHeader = false;
-      currentDay = { title: line, activities: [] };
-      days.push(currentDay);
-      continue;
-    }
-
-    if (inHeader) {
-      headerLines.push(line);
-      continue;
-    }
-
-    const tm = line.match(timeRe);
-    if (tm && currentDay) {
-      const rest = tm[3];
-      const sepIdx = rest.indexOf(" - ");
-      const place = sepIdx > -1 ? rest.slice(0, sepIdx).trim() : rest.trim();
-      const desc = sepIdx > -1 ? rest.slice(sepIdx + 3).trim() : "";
-      currentDay.activities.push({ start: tm[1], end: tm[2], place, desc });
-      continue;
-    }
-
-    if (currentDay && currentDay.activities.length > 0) {
-      const last = currentDay.activities[currentDay.activities.length - 1];
-      last.desc = last.desc ? `${last.desc} ${line}` : line;
-    } else if (currentDay) {
-      currentDay.activities.push({ start: "", end: "", place: "", desc: line });
-    }
-  }
-
-  return { headerLines, days, appendixLines };
-}
+import { isDayHeader, parseItinerary } from "../utils/itineraryParse";
 
 function parseAppendixLine(line) {
   const cleaned = String(line || "")
@@ -107,12 +43,11 @@ function parseEditDraft(text) {
   const days = [];
   let currentDay = null;
 
-  const dayRe = /^Day\s+\d+\s*[—\-–].+$/i;
 
   for (const raw of lines) {
     const line = raw.trim();
 
-    if (dayRe.test(line)) {
+    if (isDayHeader(line)) {
       currentDay = { id: makeDayId(), title: line, body: "" };
       days.push(currentDay);
       continue;

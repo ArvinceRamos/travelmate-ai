@@ -7,8 +7,15 @@ import { useItinerary } from "../features/itinerary/itineraryStore.jsx";
 import PlacesAutocompleteInput from "../features/maps/PlacesAutocompleteInput.jsx";
 import MapView from "../features/maps/MapView.jsx";
 import Icon from "../components/common/Icon.jsx";
-import { parseItineraryStops } from "../features/maps/itineraryStops.js";
-import { cachePlace, getCachedPlace } from "../features/maps/placeResolve.js";
+import { itineraryStops, placeKey, stopDays } from "../utils/itineraryParse.js";
+import {
+  buildMapGeo,
+  distanceKm,
+  readMapGeo,
+  resolveTripPlaces,
+  stopQueries,
+  tripOutlierKeys,
+} from "../features/maps/tripGeo.js";
 import { placesTextSearch, resolvePlaceLatLng } from "../services/mapsService.js";
 import { getApiJson } from "../services/apiClient.js";
 
@@ -29,6 +36,26 @@ async function photonSearch(query, { center, limit = 10, signal } = {}) {
 async function photonLookup(query, options = {}) {
   const result = await resolvePlaceLatLng({ query, center: options.center, signal: options.signal });
   return result.ok ? result.place : null;
+}
+
+// Itinerary stops go through the backend's Nominatim queue (~1 s each); public Photon
+// can take 10+ s per lookup. Photon stays as the fallback when the backend fails or finds nothing.
+async function geocodeTripStop(query, { center, signal } = {}) {
+  try {
+    const params = new URLSearchParams({ q: query, limit: "5" });
+    if (center) {
+      params.set("lat", String(center.lat));
+      params.set("lon", String(center.lng));
+    }
+    const result = await getApiJson(`/v1/places/geocode?${params}`, { signal });
+    const hits = (result?.data?.places || [])
+      .filter((p) => Number.isFinite(p?.location?.lat) && Number.isFinite(p?.location?.lng))
+      .map((p) => ({ name: p.name, address: p.address, position: p.location }));
+    if (hits.length) return hits;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+  }
+  return photonSearch(query, { center, limit: 5, signal });
 }
 
 async function reverseGeocodeNominatim(position) {
@@ -118,22 +145,8 @@ function safeJsonParse(raw) {
   }
 }
 
-function clamp(n, min, max) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return min;
-  return Math.min(max, Math.max(min, v));
-}
-
 function isItineraryMarker(marker) {
   return Boolean(marker?.label && marker?.query);
-}
-
-function approxDistanceKm(a, b) {
-  if (!a || !b) return Infinity;
-  const dx = Number(a.lat) - Number(b.lat);
-  const dy = Number(a.lng) - Number(b.lng);
-  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return Infinity;
-  return Math.sqrt(dx * dx + dy * dy) * 111;
 }
 
 function deriveAnchorLabel(itinerary) {
@@ -264,7 +277,7 @@ export default function MapPage() {
 
   const { setDraft } = useComposerDraft();
   const { mapIntent, clearIntent } = useMaps();
-  const { items: itineraryItems } = useItinerary();
+  const { items: itineraryItems, saveMapGeo } = useItinerary();
 
   const [search, setSearch] = useState("");
   const [markers, setMarkers] = useState([]);
@@ -294,22 +307,22 @@ export default function MapPage() {
   const [itineraryPanelOpen, setItineraryPanelOpen] = useState(false);
   const [selectedItineraryId, setSelectedItineraryId] = useState(null);
   const [dayFilter, setDayFilter] = useState("all");
-  const [itineraryBusy, setItineraryBusy] = useState(false);
   const [itineraryError, setItineraryError] = useState("");
-  const [itineraryPins, setItineraryPins] = useState([]);
+  const [liveGeo, setLiveGeo] = useState({ id: null, anchor: null, places: {}, done: false });
 
   const [itineraryRouteOn, setItineraryRouteOn] = useState(true);
   const [itineraryDirections, setItineraryDirections] = useState(null);
   const [showItineraryRenderer, setShowItineraryRenderer] = useState(false);
-
-  const [itineraryAnchor, setItineraryAnchor] = useState(null);
 
   const mapRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
 
   const directionsRequestIdRef = useRef(0);
   const itineraryRouteRequestIdRef = useRef(0);
-  const itineraryAbortRef = useRef(null);
+  const itineraryRouteCacheRef = useRef(new Map());
+  const fittedViewRef = useRef("");
+  const topBarRef = useRef(null);
+  const itineraryPanelRef = useRef(null);
 
   const onMapReady = useCallback((map) => {
     mapRef.current = map;
@@ -334,10 +347,13 @@ export default function MapPage() {
     } catch {}
   }, []);
 
+  const showItineraryLayer = itineraryPanelOpen && Boolean(selectedItineraryId);
+
   const visibleSearchMarkers = useMemo(() => {
+    if (showItineraryLayer) return [];
     if (routeOpen) return activeMarker && !isItineraryMarker(activeMarker) ? [activeMarker] : [];
     return markers;
-  }, [routeOpen, markers, activeMarker]);
+  }, [showItineraryLayer, routeOpen, markers, activeMarker]);
 
   const selectedItinerary = useMemo(() => {
     const list = Array.isArray(itineraryItems) ? itineraryItems : [];
@@ -345,134 +361,98 @@ export default function MapPage() {
     return list.find((x) => x.id === selectedItineraryId) || null;
   }, [itineraryItems, selectedItineraryId]);
 
-  const parsedStops = useMemo(() => {
-    if (!selectedItinerary?.text) return { days: [], all: [], detectedDays: 0 };
-    return parseItineraryStops(selectedItinerary.text);
-  }, [selectedItinerary?.text]);
+  const tripStops = useMemo(() => itineraryStops(selectedItinerary?.text || ""), [selectedItinerary?.text]);
+  const tripQueries = useMemo(() => stopQueries(tripStops), [tripStops]);
 
-  const dayOptions = useMemo(() => {
-    const mapStops = Array.isArray(selectedItinerary?.mapStops) ? selectedItinerary.mapStops : null;
+  const storedGeo = useMemo(
+    () => readMapGeo(selectedItinerary),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedItinerary?.mapGeo, selectedItinerary?.mapStops]
+  );
+  const storedGeoRef = useRef(storedGeo);
+  storedGeoRef.current = storedGeo;
 
-    if (mapStops && mapStops.length) {
-      const seen = new Set();
-      const unique = [];
+  const liveGeoForTrip = liveGeo.id && liveGeo.id === selectedItineraryId ? liveGeo : null;
+  const itineraryBusy = showItineraryLayer && Boolean(liveGeoForTrip) && !liveGeoForTrip.done;
 
-      for (const s of mapStops) {
-        const day = Number(s?.day);
-        if (!Number.isFinite(day) || day <= 0) continue;
-        if (seen.has(day)) continue;
-        seen.add(day);
-        unique.push({ day, label: `Day ${day}` });
-      }
+  const tripGeo = useMemo(
+    () => ({
+      anchor: liveGeoForTrip?.anchor || storedGeo.anchor,
+      places: liveGeoForTrip ? { ...storedGeo.places, ...liveGeoForTrip.places } : storedGeo.places,
+    }),
+    [storedGeo, liveGeoForTrip]
+  );
 
-      unique.sort((a, b) => a.day - b.day);
-      return unique;
+  const anchorLabel = useMemo(
+    () =>
+      selectedItinerary
+        ? String(selectedItinerary.anchor?.query || "").trim() || deriveAnchorLabel(selectedItinerary)
+        : "",
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedItinerary?.id, selectedItinerary?.anchor?.query, selectedItinerary?.title, selectedItinerary?.text]
+  );
+
+  const dayOptions = useMemo(
+    () => stopDays(tripStops).map((day) => ({ day, label: `Day ${day}` })),
+    [tripStops]
+  );
+
+  // Stops in view: per-day numbering (1..N) for one day, 1..N across the trip for "All days".
+  const viewStops = useMemo(() => {
+    const outliers = tripOutlierKeys(tripGeo.places, [...tripQueries.keys()]);
+    const locate = (query) => {
+      const k = placeKey(query);
+      const p = tripGeo.places[k];
+      if (!p) return { status: liveGeoForTrip?.done ? "missing" : "pending" };
+      if (p.missing || outliers.has(k)) return { status: "missing" };
+      return { status: "found", position: { lat: p.lat, lng: p.lng }, matchedName: p.name || "" };
+    };
+    const dayNum = dayFilter === "all" ? null : Number(dayFilter);
+    const list = dayNum ? tripStops.filter((s) => s.day === dayNum) : tripStops;
+
+    return list.map((s, i) => {
+      const from = s.fromQuery ? locate(s.fromQuery) : null;
+      return {
+        ...s,
+        ...locate(s.query),
+        key: `${selectedItineraryId}:${s.id}`,
+        number: dayNum ? s.order : i + 1,
+        fromPosition: from?.status === "found" ? from.position : null,
+      };
+    });
+  }, [tripStops, tripQueries, tripGeo, liveGeoForTrip?.done, dayFilter, selectedItineraryId]);
+
+  const itineraryPins = useMemo(
+    () =>
+      viewStops
+        .filter((s) => s.status === "found")
+        .map((s) => ({
+          id: s.key,
+          key: s.key,
+          label: String(s.number),
+          query: s.place,
+          name: s.place,
+          address: s.matchedName,
+          position: s.position,
+          day: s.day,
+          time: s.end ? `${s.start}–${s.end}` : s.start,
+          fromQuery: s.isTransfer ? s.fromQuery : null,
+        })),
+    [viewStops]
+  );
+
+  // A transfer leg ("Cebu City to Moalboal") starts the route at its origin.
+  const itineraryRouteCoords = useMemo(() => {
+    const pts = [];
+    for (const s of viewStops) {
+      if (s.status !== "found") continue;
+      const prev = pts[pts.length - 1];
+      if (s.fromPosition && (!prev || distanceKm(prev, s.fromPosition) > 2)) pts.push(s.fromPosition);
+      pts.push(s.position);
     }
-
-    const rawDays = Array.isArray(parsedStops?.days) ? parsedStops.days : [];
-    const seen = new Set();
-    const unique = [];
-
-    for (const item of rawDays) {
-      const day = Number(item?.day);
-      if (!Number.isFinite(day) || day <= 0) continue;
-      if (seen.has(day)) continue;
-      seen.add(day);
-      unique.push({ day, label: `Day ${day}` });
-    }
-
-    unique.sort((a, b) => a.day - b.day);
-    return unique;
-  }, [selectedItinerary?.mapStops, parsedStops]);
-
-  const itineraryCandidates = useMemo(() => {
-    if (!selectedItinerary) return [];
-
-    const mapStops = Array.isArray(selectedItinerary?.mapStops) ? selectedItinerary.mapStops : null;
-
-    if (mapStops && mapStops.length) {
-      const anchorQuery = String(selectedItinerary?.anchor?.query || "").trim();
-      const anchorCity = String(selectedItinerary?.anchor?.city || "").trim();
-      const anchorCountry = String(selectedItinerary?.anchor?.country || "").trim();
-
-      const normalized = mapStops
-        .map((s) => {
-          const day = Number(s?.day);
-          const order = Number(s?.order);
-          const label = String(s?.label || "").trim();
-          const area = String(s?.area || "").trim();
-          const city = String(s?.city || "").trim() || anchorCity;
-          const country = String(s?.country || "").trim() || anchorCountry;
-          const query = String(s?.query || "").trim();
-          const placeId = String(s?.placeId || "").trim();
-          const location =
-            s?.location && Number.isFinite(Number(s.location.lat)) && Number.isFinite(Number(s.location.lng))
-              ? { lat: Number(s.location.lat), lng: Number(s.location.lng) }
-              : null;
-
-          if (!Number.isFinite(day) || day <= 0) return null;
-          if (!Number.isFinite(order) || order <= 0) return null;
-          if (!label) return null;
-
-          const fallbackParts = [label];
-          if (area) fallbackParts.push(area);
-          if (city) fallbackParts.push(city);
-          if (country) fallbackParts.push(country);
-          else if (anchorQuery) fallbackParts.push(anchorQuery);
-
-          const finalQuery = query || fallbackParts.filter(Boolean).join(", ");
-          if (!finalQuery) return null;
-
-          return {
-            isStructured: true,
-            day,
-            order,
-            query: finalQuery,
-            label,
-            placeId: placeId || null,
-            location,
-          };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (a.day - b.day) || (a.order - b.order));
-
-      // Deduplicate: keep only the first occurrence of each label per day
-      const seenLabels = new Set();
-      const deduped = normalized.filter((s) => {
-        const key = `${s.day}::${s.label.toLowerCase()}`;
-        if (seenLabels.has(key)) return false;
-        seenLabels.add(key);
-        return true;
-      });
-
-      if (dayFilter === "all") return deduped;
-
-      const dayNum = Number(dayFilter);
-      if (!Number.isFinite(dayNum) || dayNum <= 0) return deduped;
-
-      return deduped.filter((s) => s.day === dayNum);
-    }
-
-    if (!selectedItinerary?.text) return [];
-
-    const raw =
-      dayFilter === "all"
-        ? parsedStops.all || []
-        : (() => {
-            const dayNum = Number(dayFilter);
-            if (!Number.isFinite(dayNum) || dayNum <= 0) return parsedStops.all || [];
-            const day = (parsedStops.days || []).find((d) => d.day === dayNum);
-            return day?.candidates || [];
-          })();
-
-    const list = Array.isArray(raw) ? raw : [];
-    return list.map((text, idx) => ({
-      isStructured: false,
-      day: dayFilter === "all" ? null : Number(dayFilter) || null,
-      order: idx + 1,
-      query: String(text || "").trim(),
-    }));
-  }, [selectedItinerary, selectedItinerary?.mapStops, selectedItinerary?.text, parsedStops, dayFilter]);
+    return pts.slice(0, 20);
+  }, [viewStops]);
+  const itineraryRouteKey = itineraryRouteCoords.map((p) => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}`).join(";");
 
   const clearRoute = useCallback(() => {
     directionsRequestIdRef.current += 1;
@@ -508,10 +488,8 @@ export default function MapPage() {
     clearItineraryRoute();
     setSelectedItineraryId(null);
     setDayFilter("all");
-    setItineraryPins([]);
     setItineraryError("");
     setActiveMarker(null);
-    setItineraryAnchor(null);
     setItineraryPanelOpen(false);
 
     const params = new URLSearchParams(searchParams);
@@ -609,6 +587,7 @@ export default function MapPage() {
       if (!q) return;
 
       setError("");
+      setItineraryPanelOpen(false);
       const searchCenter =
         Number(mapCenter.lat) === DEFAULT_MAP_CENTER.lat &&
         Number(mapCenter.lng) === DEFAULT_MAP_CENTER.lng
@@ -634,6 +613,26 @@ export default function MapPage() {
       }
     },
     [search, mapCenter, focusMapOnPoint]
+  );
+
+  const showSearchResult = useCallback(
+    (suggestion) => {
+      if (!suggestion?.position) return;
+      const marker = {
+        id: suggestion.placeId || `search-${Date.now()}`,
+        name: suggestion.main || suggestion.description,
+        address: suggestion.description || "",
+        rating: null,
+        openNow: null,
+        position: suggestion.position,
+      };
+      setError("");
+      setItineraryPanelOpen(false);
+      setMarkers([marker]);
+      setActiveMarker(marker);
+      focusMapOnPoint(marker.position, 15);
+    },
+    [focusMapOnPoint]
   );
 
   const openDirections = useCallback(() => {
@@ -761,13 +760,6 @@ export default function MapPage() {
     [travelMode, routeOpen, originCoords, origin, destination, buildRoute]
   );
 
-  useEffect(
-    () => () => {
-      itineraryAbortRef.current?.abort?.();
-    },
-    []
-  );
-
   const shareToChat = useCallback(
     (place) => {
       const msg = `Add this location to my trip: ${place?.name || place?.query || "a place"}${place?.address ? ` (${place.address})` : ""}`;
@@ -841,7 +833,6 @@ export default function MapPage() {
       const id = nextId || null;
       setSelectedItineraryId(id);
       setItineraryError("");
-      setItineraryPins([]);
       clearItineraryRoute();
       setActiveMarker(null);
       if (openPanel) setItineraryPanelOpen(true);
@@ -858,6 +849,24 @@ export default function MapPage() {
     [dayFilter, searchParams, setSearchParams, clearItineraryRoute]
   );
 
+  // Space taken by the search bar and itinerary panel, so pins aren't fitted underneath them.
+  const overlayPadding = useCallback(() => {
+    const pad = { tl: [48, 48], br: [48, 48] };
+    const map = mapRef.current?.getContainer?.()?.getBoundingClientRect();
+    if (!map) return pad;
+    const bar = topBarRef.current?.getBoundingClientRect();
+    if (bar) pad.tl[1] = Math.max(48, bar.bottom - map.top + 24);
+    const panel = itineraryPanelRef.current?.getBoundingClientRect();
+    if (panel) {
+      const bottomSheet = panel.left - map.left < 24 && panel.right > map.right - 24;
+      if (bottomSheet) pad.br[1] = Math.max(48, map.bottom - panel.top + 24);
+      else pad.tl[0] = Math.max(48, panel.right - map.left + 24);
+    }
+    if (map.width - pad.tl[0] - pad.br[0] < 80) pad.tl[0] = pad.br[0] = 48;
+    if (map.height - pad.tl[1] - pad.br[1] < 80) pad.tl[1] = pad.br[1] = 48;
+    return pad;
+  }, []);
+
   const fitToPins = useCallback((pins) => {
     const coords = (Array.isArray(pins) ? pins : [])
       .map((pin) => pin?.position)
@@ -869,90 +878,16 @@ export default function MapPage() {
       );
 
     if (!coords.length || !mapRef.current) return;
-    if (coords.length === 1) {
-      mapRef.current.setView([coords[0].lat, coords[0].lng], 14);
-      return;
-    }
+    const { tl, br } = overlayPadding();
+    const bounds = coords.map((position) => [position.lat, position.lng]);
+    if (coords.length === 1) bounds.push(bounds[0]);
 
-    mapRef.current.fitBounds(
-      coords.map((position) => [position.lat, position.lng]),
-      { padding: [48, 48], maxZoom: 16 }
-    );
-  }, []);
-
-  const resolvePlaceFromQuery = useCallback(
-    async (query, { signal, center, radiusMeters = 50000, restrictToCircle = true } = {}) => {
-      const q = String(query || "").trim();
-      if (!q || q.length < 4) return null;
-
-      const badQueryPatterns = [/^breakfast$/i, /^lunch$/i, /^dinner$/i, /^rest$/i, /^free time$/i, /^shopping$/i, /^travel$/i, /^commute$/i];
-      if (badQueryPatterns.some((rx) => rx.test(q))) return null;
-
-      const c =
-        center &&
-        Number.isFinite(center.lat) &&
-        Number.isFinite(center.lng) &&
-        !(Number(center.lat) === DEFAULT_MAP_CENTER.lat && Number(center.lng) === DEFAULT_MAP_CENTER.lng)
-          ? center
-          : undefined;
-      const radius = clamp(radiusMeters, 0, 50000);
-
-      const cached = getCachedPlace(q, { center: c, radiusMeters: radius });
-      if (cached) return cached;
-
-      try {
-        const places = await photonSearch(q, { center: c, limit: 5, signal });
-        if (signal?.aborted) return null;
-        const place = places.find(
-          (candidate) =>
-            !restrictToCircle ||
-            !c ||
-            approxDistanceKm(candidate.position, c) <= radius / 1000
-        );
-        if (!place) return null;
-
-        cachePlace(q, place, { center: c, radiusMeters: radius });
-        return place;
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
-  const buildItineraryRoute = useCallback(
-    async (pins) => {
-      const coords = (Array.isArray(pins) ? pins : [])
-        .map((pin) => pin?.position)
-        .filter(
-          (position) =>
-            position &&
-            Number.isFinite(position.lat) &&
-            Number.isFinite(position.lng)
-        )
-        .slice(0, 10);
-
-      clearItineraryRoute(false);
-      const requestId = itineraryRouteRequestIdRef.current + 1;
-      itineraryRouteRequestIdRef.current = requestId;
-      if (coords.length < 2) return;
-
-      try {
-        const route = await requestOsrmRoute(coords, "DRIVING");
-        if (requestId !== itineraryRouteRequestIdRef.current) return;
-        setItineraryDirections(route);
-        setShowItineraryRenderer(true);
-      } catch (error) {
-        if (requestId !== itineraryRouteRequestIdRef.current) return;
-        setItineraryDirections(null);
-        setShowItineraryRenderer(false);
-        setItineraryError(
-          error?.message || "Couldn’t draw the itinerary route. Please try again."
-        );
-      }
-    },
-    [clearItineraryRoute]
-  );
+    mapRef.current.fitBounds(bounds, {
+      paddingTopLeft: tl,
+      paddingBottomRight: br,
+      maxZoom: coords.length === 1 ? 14 : 16,
+    });
+  }, [overlayPadding]);
 
   useEffect(() => {
     const urlId = searchParams.get("itineraryId");
@@ -1079,210 +1014,164 @@ export default function MapPage() {
     setItineraryPanelOpen(true);
   }, [location?.state, searchParams, setSearchParams]);
 
+  // Geocode only stops with no saved location, show pins as they resolve, then save once.
   useEffect(() => {
-    let cancelled = false;
+    const id = selectedItinerary?.id;
+    if (!showItineraryLayer || !id) return;
 
-    async function run() {
-      if (!mapReady) return;
-      if (!selectedItinerary?.id) {
-        setItineraryAnchor(null);
-        return;
-      }
-
-      const label =
-        String(selectedItinerary?.anchor?.query || "").trim() ||
-        deriveAnchorLabel(selectedItinerary);
-      let center = DEFAULT_MAP_CENTER;
-
-      try {
-        const place = await photonLookup(label, { center: mapCenter });
-        if (place?.position) center = place.position;
-      } catch {}
-
-      if (cancelled) return;
-
-      setItineraryAnchor({ label, center });
-      mapRef.current?.setView([center.lat, center.lng], 12);
-    }
-
-    run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    mapReady,
-    selectedItinerary?.id,
-    selectedItinerary?.anchor?.query,
-    selectedItinerary?.title,
-    selectedItinerary?.text,
-    selectedItinerary?.mapStops,
-    mapCenter,
-  ]);
-
-  useEffect(() => {
-    if (!mapReady) return;
-    if (!selectedItineraryId) return;
-
-    const it = selectedItinerary;
-    const hasMapStops = Array.isArray(it?.mapStops) && it.mapStops.length > 0;
-    const hasText = !!String(it?.text || "").trim();
-
-    if (!hasMapStops && !hasText) {
-      clearItineraryRoute();
-      setItineraryPins([]);
-      setItineraryError("This itinerary has no content to map.");
-      return;
-    }
-
-    const anchorCenter = itineraryAnchor?.center || DEFAULT_MAP_CENTER;
-    const anchorLabel = itineraryAnchor?.label || deriveAnchorLabel(it) || "";
-    const candidates = itineraryCandidates;
-
-    if (!candidates.length) {
-      clearItineraryRoute();
-      setItineraryPins([]);
-      setItineraryError(
-        "No mappable stops found in this itinerary. Try editing stops to include clearer place names like “Fort Santiago, Manila” instead of generic activity lines."
+    const { anchor, places: known } = storedGeoRef.current;
+    if (![...tripQueries.keys()].some((k) => !known[k])) {
+      setLiveGeo((prev) =>
+        prev.id === id ? (prev.done ? prev : { ...prev, done: true }) : { id, anchor: null, places: {}, done: true }
       );
       return;
     }
 
-    setItineraryBusy(true);
-    setItineraryError("");
-
-    try {
-      itineraryAbortRef.current?.abort?.();
-    } catch {}
-
     const controller = new AbortController();
-    itineraryAbortRef.current = controller;
+    const found = { anchor, places: {} };
+    let dirty = false;
+    setLiveGeo({ id, anchor: null, places: {}, done: false });
 
-    const run = async () => {
-      try {
-        const maxPins = clamp(candidates.length, 1, 50);
-        const subset = candidates.slice(0, maxPins);
-
-        const resolved = [];
-        let idx = 0;
-
-        const workers = new Array(3).fill(0).map(async () => {
-          while (idx < subset.length) {
-            const myIndex = idx;
-            idx += 1;
-
-            const item = subset[myIndex];
-            const baseQuery = String(item?.query || "").trim();
-            if (!baseQuery) continue;
-
-            const q = item?.isStructured ? baseQuery : anchorLabel ? `${baseQuery}, ${anchorLabel}` : baseQuery;
-
-            const place = item?.location
-              ? {
-                  id: item?.placeId || q,
-                  name: item?.label || q,
-                  address: q,
-                  position: item.location,
-                }
-              : await resolvePlaceFromQuery(q, {
-                  signal: controller.signal,
-                  center: anchorCenter,
-                  radiusMeters: 50000,
-                  restrictToCircle: true,
-                });
-
-            if (place?.position) {
-              const roughKm = approxDistanceKm(place.position, anchorCenter);
-              if (roughKm > 80) continue;
-
-              resolved.push({
-                key: `${q}::${place.id || place.name}`,
-                order: Number(item?.order) || myIndex + 1,
-                query: q,
-                name: place.name || q,
-                address: place.address || "",
-                rating: place.rating,
-                openNow: place.openNow,
-                position: place.position,
-                label: "0",
-                day: item?.day ?? (dayFilter === "all" ? null : Number(dayFilter)),
-              });
-            }
-          }
-        });
-
-        await Promise.allSettled(workers);
-
-        if (controller.signal.aborted) return;
-
-        resolved.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        resolved.forEach((p, i) => {
-          p.label = String(i + 1);
-        });
-
-        if (!resolved.length) {
-          clearItineraryRoute();
-          setItineraryPins([]);
-          setItineraryError("We couldn’t locate any stops for this itinerary. Try editing stops to include clearer place names.");
-          return;
-        }
-
-        setItineraryPins(resolved);
-        fitToPins(resolved);
-
-        if (itineraryRouteOn) {
-          buildItineraryRoute(resolved);
-        } else {
-          clearItineraryRoute();
-        }
-      } finally {
-        if (!controller.signal.aborted) setItineraryBusy(false);
+    resolveTripPlaces({
+      queries: tripQueries,
+      known,
+      anchor,
+      anchorLabel,
+      search: geocodeTripStop,
+      signal: controller.signal,
+      onAnchor: (a) => {
+        found.anchor = a;
+        dirty = true;
+        setLiveGeo((prev) => (prev.id === id ? { ...prev, anchor: a } : prev));
+      },
+      onPlace: (k, p) => {
+        found.places[k] = p;
+        dirty = true;
+        setLiveGeo((prev) => (prev.id === id ? { ...prev, places: { ...prev.places, [k]: p } } : prev));
+      },
+    }).finally(() => {
+      if (!controller.signal.aborted) {
+        setLiveGeo((prev) => (prev.id === id ? { ...prev, done: true } : prev));
       }
-    };
+      if (dirty) {
+        const mapGeo = buildMapGeo({
+          anchor: found.anchor,
+          places: { ...known, ...found.places },
+          queries: tripQueries,
+        });
+        saveMapGeo(id, mapGeo).catch((err) => console.warn("Saving map locations failed:", err?.message || err));
+      }
+    });
 
-    run();
+    return () => controller.abort();
+  }, [showItineraryLayer, selectedItinerary?.id, tripQueries, anchorLabel, saveMapGeo]);
+
+  // Fit once on the first pins of a view, and again when all stops are resolved.
+  const itineraryViewKey = showItineraryLayer ? `${selectedItineraryId}|${dayFilter}` : "";
+  useEffect(() => {
+    if (!mapReady || !itineraryViewKey) {
+      fittedViewRef.current = "";
+      return;
+    }
+    if (itineraryPins.length) {
+      const tag = `${itineraryViewKey}|${itineraryBusy ? "partial" : "all"}`;
+      if (fittedViewRef.current === tag) return;
+      fittedViewRef.current = tag;
+      const legStarts = viewStops.filter((s) => s.fromPosition).map((s) => ({ position: s.fromPosition }));
+      fitToPins([...itineraryPins, ...legStarts]);
+      return;
+    }
+    const a = tripGeo.anchor;
+    const tag = `${itineraryViewKey}|anchor`;
+    if (itineraryBusy && a && !a.missing && fittedViewRef.current !== tag) {
+      fittedViewRef.current = tag;
+      mapRef.current?.setView([a.lat, a.lng], 11);
+    }
+  }, [mapReady, itineraryViewKey, itineraryPins, viewStops, itineraryBusy, tripGeo.anchor, fitToPins]);
+
+  useEffect(() => {
+    setItineraryError("");
+    if (!showItineraryLayer || !itineraryRouteOn || itineraryBusy || itineraryRouteCoords.length < 2) {
+      clearItineraryRoute();
+      return;
+    }
+
+    const cached = itineraryRouteCacheRef.current.get(itineraryRouteKey);
+    if (cached) {
+      setItineraryDirections(cached);
+      setShowItineraryRenderer(true);
+      return;
+    }
+
+    clearItineraryRoute(false);
+    const requestId = itineraryRouteRequestIdRef.current + 1;
+    itineraryRouteRequestIdRef.current = requestId;
+
+    requestOsrmRoute(itineraryRouteCoords, "DRIVING")
+      .then((route) => {
+        if (requestId !== itineraryRouteRequestIdRef.current) return;
+        itineraryRouteCacheRef.current.set(itineraryRouteKey, route);
+        setItineraryDirections(route);
+        setShowItineraryRenderer(true);
+      })
+      .catch((err) => {
+        if (requestId !== itineraryRouteRequestIdRef.current) return;
+        clearItineraryRoute(false);
+        setItineraryError(err?.message || "Couldn’t draw the itinerary route. Please try again.");
+      });
 
     return () => {
-      clearItineraryRoute();
-
-      try {
-        controller.abort();
-      } catch {}
+      itineraryRouteRequestIdRef.current += 1;
     };
-  }, [
-    mapReady,
-    selectedItineraryId,
-    selectedItinerary,
-    itineraryCandidates,
-    itineraryAnchor,
-    resolvePlaceFromQuery,
-    fitToPins,
-    itineraryRouteOn,
-    buildItineraryRoute,
-    dayFilter,
-    clearItineraryRoute,
-  ]);
+    // itineraryRouteKey stands in for itineraryRouteCoords
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showItineraryLayer, itineraryRouteOn, itineraryBusy, itineraryRouteKey, clearItineraryRoute]);
 
   const originPreview = originCoords ? "Current location" : origin || "";
   const destPreview = destination || "";
   const originIsCurrentLocation = origin.trim().toLowerCase() === "current location" && !!userLocation;
   const itineraryTitle = selectedItinerary?.title || "Itinerary";
-  const hasItineraryView = Boolean(selectedItineraryId);
+  const hasItineraryView = showItineraryLayer;
+  const mapNotice = error || (showItineraryLayer ? itineraryError : "");
+  const foundStopCount = viewStops.filter((s) => s.status === "found").length;
+  const stopGroups = viewStops.reduce((groups, stop) => {
+    const last = groups[groups.length - 1];
+    if (last && last.day === stop.day) last.stops.push(stop);
+    else groups.push({ day: stop.day, stops: [stop] });
+    return groups;
+  }, []);
+
+  const focusStop = (stop) => {
+    const pin = itineraryPins.find((p) => p.id === stop.key);
+    if (!pin) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const zoom = Math.max(map.getZoom(), 15);
+    const { tl, br } = overlayPadding();
+    // Phones (bottom sheet, landscape) leave too little height for the popup; show the pin alone.
+    setActiveMarker(map.getSize().y - tl[1] - br[1] >= 300 ? pin : null);
+    const offset = [(tl[0] - br[0]) / 2, (tl[1] - br[1]) / 2];
+    const point = map.project([pin.position.lat, pin.position.lng], zoom).subtract(offset);
+    map.setView(map.unproject(point, zoom), zoom);
+  };
 
   return (
     <div className="tm-mapPage">
       <div className="tm-mapSurface">
-        {(error || itineraryError) && <div className="tm-mapNotice">{error || itineraryError}</div>}
+        {mapNotice && <div className="tm-mapNotice">{mapNotice}</div>}
 
         <div className="tm-mapWrap tm-mapWrap--full">
           <div className="tm-mapOverlay" aria-label="Map controls">
             <div className="tm-mapOverlay__stack">
-              <div className="tm-mapSearch tm-mapTopBar tm-mapSearch--withDropdown tm-mapSearch--overlay">
+              <div ref={topBarRef} className="tm-mapSearch tm-mapTopBar tm-mapSearch--withDropdown tm-mapSearch--overlay">
                 <PlacesAutocompleteInput
                   inputId="tm_place_search"
                   value={search}
                   onChange={setSearch}
-                  onSelect={(it) => setSearch(it.description)}
+                  onSelect={(it) => {
+                    setSearch(it.description);
+                    showSearchResult(it);
+                  }}
                   placeholder="Search a city, landmark, or place…"
                 />
 
@@ -1290,16 +1179,15 @@ export default function MapPage() {
                   type="button"
                   className={`tm-mapIconBtn ${itineraryPanelOpen ? "is-active" : ""}`}
                   onClick={() => {
-                    setItineraryPanelOpen((v) => {
-                      const next = !v;
-                      if (next) {
-                        clearAllDirections();
-                        setRouteOpen(false);
-                        setDirectionsPanelOpen(false);
-                        setActiveMarker(null);
-                      }
-                      return next;
-                    });
+                    const next = !itineraryPanelOpen;
+                    if (next) {
+                      clearAllDirections();
+                      setRouteOpen(false);
+                      setDirectionsPanelOpen(false);
+                      setActiveMarker(null);
+                      setMarkers([]);
+                    }
+                    setItineraryPanelOpen(next);
                   }}
                   aria-label="Open itineraries"
                   title="Itineraries"
@@ -1337,7 +1225,7 @@ export default function MapPage() {
               </div>
 
               {itineraryPanelOpen && (
-                <div className="tm-itMapPanel" aria-label="Itineraries">
+                <div ref={itineraryPanelRef} className="tm-itMapPanel" aria-label="Itineraries">
                   <div className="tm-itMapPanel__top">
                     <div className="tm-itMapPanel__title">Itineraries on Map</div>
                     <div className="tm-itMapPanel__actions">
@@ -1347,7 +1235,10 @@ export default function MapPage() {
                       <button
                         type="button"
                         className="tm-clearBtn tm-clearBtn--mini"
-                        onClick={() => setItineraryPanelOpen(false)}
+                        onClick={() => {
+                          setItineraryPanelOpen(false);
+                          setActiveMarker(null);
+                        }}
                         aria-label="Close itineraries panel"
                         title="Close"
                       >
@@ -1446,13 +1337,46 @@ export default function MapPage() {
                             </label>
                           </div>
 
-                          <div className="tm-itMapPanel__hint muted">
-                            {itineraryBusy
-                              ? "Mapping itinerary stops…"
-                              : itineraryPins.length
-                                ? `${itineraryPins.length} stop${itineraryPins.length > 1 ? "s" : ""} shown`
-                                : "No stops resolved for this view."}
+                          <div className="tm-itMapPanel__hint muted" aria-live="polite">
+                            {!tripStops.length
+                              ? "No timed stops found in this itinerary. Edit it to add lines like “09:00–11:00 - Fort Santiago - …”."
+                              : itineraryBusy
+                                ? `Locating stops… ${foundStopCount} of ${viewStops.length}`
+                                : `${foundStopCount} of ${viewStops.length} stop${viewStops.length === 1 ? "" : "s"} on the map`}
                           </div>
+
+                          {stopGroups.length ? (
+                            <div className="tm-itMapStops">
+                              {stopGroups.map((group) => (
+                                <div key={group.day} className="tm-itMapStops__group">
+                                  {dayFilter === "all" ? <div className="tm-itMapStops__day">Day {group.day}</div> : null}
+                                  <ol className="tm-itMapStops__list">
+                                    {group.stops.map((stop) => (
+                                      <li key={stop.key}>
+                                        <button
+                                          type="button"
+                                          className={`tm-itMapStop is-${stop.status}`}
+                                          onClick={() => focusStop(stop)}
+                                          disabled={stop.status !== "found"}
+                                        >
+                                          <span className="tm-itMapStop__num" aria-hidden="true">{stop.number}</span>
+                                          <span className="tm-itMapStop__body">
+                                            <span className="tm-itMapStop__place">{stop.place}</span>
+                                            <span className="tm-itMapStop__meta">
+                                              {stop.end ? `${stop.start}–${stop.end}` : stop.start}
+                                              {stop.isTransfer ? " · Transfer" : ""}
+                                              {stop.status === "missing" ? " · Not found on map" : ""}
+                                              {stop.status === "pending" ? " · Locating…" : ""}
+                                            </span>
+                                          </span>
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       ) : (
                         <div className="tm-itMapPanel__section">
@@ -1614,10 +1538,7 @@ export default function MapPage() {
                 id: marker.id || marker.key,
                 label: routeOpen ? "B" : marker.label,
               })),
-              ...itineraryPins.map((pin) => ({
-                ...pin,
-                id: pin.id || pin.key,
-              })),
+              ...(showItineraryLayer ? itineraryPins : []),
               ...(userLocation
                 ? [{ id: "user-location", name: "Your location", position: userLocation, label: "You" }]
                 : []),
@@ -1647,7 +1568,7 @@ export default function MapPage() {
                     color: "#0E3B2B",
                   }]
                 : []),
-              ...(!routeOpen && itineraryRouteOn && showItineraryRenderer && itineraryDirections?.geometry?.coordinates?.length > 1
+              ...(!routeOpen && showItineraryLayer && itineraryRouteOn && showItineraryRenderer && itineraryDirections?.geometry?.coordinates?.length > 1
                 ? [{
                     id: "itinerary-route",
                     positions: itineraryDirections.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
@@ -1666,11 +1587,15 @@ export default function MapPage() {
                           : activeMarker.name}
                       </div>
 
-                      {isItineraryMarker(activeMarker) && (activeMarker.day || activeMarker.query) ? (
+                      {isItineraryMarker(activeMarker) ? (
                         <div className="tm-popupMeta">
-                          {activeMarker.day ? "Day " + activeMarker.day : ""}
-                          {activeMarker.day && activeMarker.query ? " • " : ""}
-                          {activeMarker.query || ""}
+                          {[
+                            activeMarker.day ? `Day ${activeMarker.day}` : "",
+                            activeMarker.time || "",
+                            activeMarker.fromQuery ? `Transfer from ${activeMarker.fromQuery}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" • ")}
                         </div>
                       ) : null}
                     </div>

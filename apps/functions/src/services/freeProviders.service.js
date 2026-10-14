@@ -122,11 +122,11 @@ function nominatimRequest(url) {
   return request;
 }
 
-async function nominatimSearch(query, limit = 5) {
+async function nominatimSearch(query, limit = 5, { viewbox = "" } = {}) {
   const text = String(query || "").trim();
   if (!text || text.length > 200) throw new ProviderError("Search query must be 1-200 characters.", 400);
   const boundedLimit = Math.min(10, Math.max(1, Number(limit) || 5));
-  const key = cacheKey("nominatim-search", [text.toLowerCase(), boundedLimit]);
+  const key = cacheKey("nominatim-search", [text.toLowerCase(), boundedLimit, viewbox]);
   const cached = cacheGet(key);
   if (cached) return cached;
 
@@ -137,6 +137,10 @@ async function nominatimSearch(query, limit = 5) {
     addressdetails: "1",
     limit: String(boundedLimit),
   });
+  if (viewbox) {
+    params.set("viewbox", viewbox);
+    params.set("bounded", "1");
+  }
   const rows = await nominatimRequest(`${base}/search?${params}`);
   const results = (Array.isArray(rows) ? rows : []).map((row) => {
     const lat = Number(row.lat);
@@ -160,6 +164,31 @@ async function nominatimSearch(query, limit = 5) {
     };
   }).filter(Boolean);
   return cacheSet(key, results, 24 * 60 * 60_000);
+}
+
+const GEOCODE_BIAS_DEG = 0.5;
+
+function optionalCoord(value, max) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && Math.abs(n) <= max ? n : null;
+}
+
+/** One-shot geocode of a named stop: search a box around the trip base first, then anywhere. */
+async function geocodePlace(query, { lat, lon, limit = 5 } = {}) {
+  const latitude = optionalCoord(lat, 90);
+  const longitude = optionalCoord(lon, 180);
+  if (latitude !== null && longitude !== null) {
+    const viewbox = [
+      longitude - GEOCODE_BIAS_DEG,
+      latitude + GEOCODE_BIAS_DEG,
+      longitude + GEOCODE_BIAS_DEG,
+      latitude - GEOCODE_BIAS_DEG,
+    ].map((n) => n.toFixed(3)).join(",");
+    const near = await nominatimSearch(query, limit, { viewbox });
+    if (near.length) return near;
+  }
+  return nominatimSearch(query, limit);
 }
 
 async function reverseGeocode(lat, lon) {
@@ -275,4 +304,4 @@ function sendProviderError(res, error, fallback) {
   });
 }
 
-module.exports = { ProviderError, photonSearch, nominatimSearch, reverseGeocode, nearbyPlaces, route, currentWeather, clearProviderCache, sendProviderError };
+module.exports = { ProviderError, photonSearch, nominatimSearch, geocodePlace, reverseGeocode, nearbyPlaces, route, currentWeather, clearProviderCache, sendProviderError };

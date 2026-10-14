@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy, useEffect } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 
@@ -14,14 +14,45 @@ import Topbar from "./components/layout/Topbar.jsx";
 import { useAuth } from "./hooks/useAuth";
 
 import ChatPage from "./pages/ChatPage.jsx";
-import MapPage from "./pages/MapPage.jsx";
-import ItineraryPage from "./pages/ItineraryPage.jsx";
-import NotificationsPage from "./pages/NotificationsPage.jsx";
-import SettingsPage from "./pages/SettingsPage.jsx";
-import LoggedOut from "./pages/LoggedOut.jsx";
+
+const loadMapPage = () => import("./pages/MapPage.jsx");
+const loadItineraryPage = () => import("./pages/ItineraryPage.jsx");
+const loadNotificationsPage = () => import("./pages/NotificationsPage.jsx");
+const loadSettingsPage = () => import("./pages/SettingsPage.jsx");
+
+const MapPage = lazy(loadMapPage);
+const ItineraryPage = lazy(loadItineraryPage);
+const NotificationsPage = lazy(loadNotificationsPage);
+const SettingsPage = lazy(loadSettingsPage);
+const LoggedOut = lazy(() => import("./pages/LoggedOut.jsx"));
+
+function PageFallback() {
+  return <div className="muted" style={{ padding: 24 }}>Loading…</div>;
+}
 
 function AppShellLayout({ children }) {
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell>
+      <Suspense fallback={<PageFallback />}>{children}</Suspense>
+    </AppShell>
+  );
+}
+
+// Fetch the other pages once the first screen is idle so switching tabs doesn't wait on the network.
+function usePrefetchPages() {
+  useEffect(() => {
+    const prefetch = () => {
+      for (const load of [loadItineraryPage, loadMapPage, loadNotificationsPage, loadSettingsPage]) {
+        load().catch(() => {});
+      }
+    };
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(prefetch, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(prefetch, 2000);
+    return () => window.clearTimeout(id);
+  }, []);
 }
 
 function ProtectedAppRoute({ children }) {
@@ -74,6 +105,8 @@ function ChatRoute() {
 }
 
 export default function App() {
+  usePrefetchPages();
+
   return (
     <ComposerDraftProvider>
       <ChatRequestProvider>
@@ -82,50 +115,52 @@ export default function App() {
             <ItineraryProvider>
               <NotificationsProvider>
                 <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
-                <Routes>
-                  <Route path="/logged-out" element={<LoggedOut />} />
+                <Suspense fallback={null}>
+                  <Routes>
+                    <Route path="/logged-out" element={<LoggedOut />} />
 
-                  <Route path="/chat" element={<ChatRoute />} />
-                  <Route path="/chat/:chatId" element={<ChatRoute />} />
+                    <Route path="/chat" element={<ChatRoute />} />
+                    <Route path="/chat/:chatId" element={<ChatRoute />} />
 
-                  <Route
-                    path="/map"
-                    element={
-                      <ProtectedAppRoute>
-                        <MapPage />
-                      </ProtectedAppRoute>
-                    }
-                  />
+                    <Route
+                      path="/map"
+                      element={
+                        <ProtectedAppRoute>
+                          <MapPage />
+                        </ProtectedAppRoute>
+                      }
+                    />
 
-                  <Route
-                    path="/itinerary"
-                    element={
-                      <ProtectedAppRoute>
-                        <ItineraryPage />
-                      </ProtectedAppRoute>
-                    }
-                  />
+                    <Route
+                      path="/itinerary"
+                      element={
+                        <ProtectedAppRoute>
+                          <ItineraryPage />
+                        </ProtectedAppRoute>
+                      }
+                    />
 
-                  <Route
-                    path="/notifications"
-                    element={
-                      <ProtectedAppRoute>
-                        <NotificationsPage />
-                      </ProtectedAppRoute>
-                    }
-                  />
+                    <Route
+                      path="/notifications"
+                      element={
+                        <ProtectedAppRoute>
+                          <NotificationsPage />
+                        </ProtectedAppRoute>
+                      }
+                    />
 
-                  <Route
-                    path="/settings"
-                    element={
-                      <ProtectedAppRoute>
-                        <SettingsPage />
-                      </ProtectedAppRoute>
-                    }
-                  />
+                    <Route
+                      path="/settings"
+                      element={
+                        <ProtectedAppRoute>
+                          <SettingsPage />
+                        </ProtectedAppRoute>
+                      }
+                    />
 
-                  <Route path="*" element={<Navigate to="/chat" replace />} />
-                </Routes>
+                    <Route path="*" element={<Navigate to="/chat" replace />} />
+                  </Routes>
+                </Suspense>
               </NotificationsProvider>
             </ItineraryProvider>
           </MapsProvider>

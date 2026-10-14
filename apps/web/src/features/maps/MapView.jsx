@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import L from "leaflet";
 import {
   MapContainer,
@@ -72,6 +72,16 @@ export default function MapView({
   onMarkerClick,
   onPopupClose,
 }) {
+  const markerRefs = useRef(new Map());
+
+  // Selecting a marker from code (search result, stop list) should show its popup too.
+  useEffect(() => {
+    const id = activeMarker?.id;
+    if (!id) return undefined;
+    const timer = setTimeout(() => markerRefs.current.get(id)?.openPopup(), 0);
+    return () => clearTimeout(timer);
+  }, [activeMarker?.id]);
+
   const centerPosition =
     Number.isFinite(Number(center?.lat)) && Number.isFinite(Number(center?.lng))
       ? [Number(center.lat), Number(center.lng)]
@@ -105,6 +115,11 @@ export default function MapView({
         .map((marker, index) => (
           <Marker
             key={marker.id || `${marker.position.lat},${marker.position.lng}-${index}`}
+            ref={(instance) => {
+              if (!marker.id) return;
+              if (instance) markerRefs.current.set(marker.id, instance);
+              else markerRefs.current.delete(marker.id);
+            }}
             position={[Number(marker.position.lat), Number(marker.position.lng)]}
             icon={markerIcon(marker.label || "")}
             eventHandlers={{ click: () => onMarkerClick?.(marker) }}

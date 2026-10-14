@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { placesAutocomplete } from "../../services/mapsService.js";
+import { peekPlacesAutocomplete, placesAutocomplete } from "../../services/mapsService.js";
+
+const MIN_QUERY_LENGTH = 3;
+const DEBOUNCE_MS = 200;
 
 async function fetchPhotonSuggestions(query, biasCenter, signal) {
   const result = await placesAutocomplete({ query, center: biasCenter, limit: 8, signal });
@@ -34,6 +37,7 @@ export default function PlacesAutocompleteInput({
   const wrapRef = useRef(null);
   const reqSeq = useRef(0);
   const timerRef = useRef(null);
+  const pickedRef = useRef("");
 
   useEffect(() => {
     function onDocMouseDown(e) {
@@ -63,18 +67,27 @@ export default function PlacesAutocompleteInput({
     const controller = new AbortController();
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    if (q.length < 2) {
-      setItems([]);
+    if (q.length < MIN_QUERY_LENGTH || q === pickedRef.current) {
+      if (q.length < MIN_QUERY_LENGTH) setItems([]);
       setActiveIdx(-1);
       setBusy(false);
       setErr("");
       return () => controller.abort();
     }
 
-    timerRef.current = setTimeout(async () => {
-      setBusy(true);
+    const cached = peekPlacesAutocomplete({ query: q, center: biasCenter, limit: 8 });
+    if (cached) {
+      setItems(cached);
+      setActiveIdx(-1);
+      setBusy(false);
       setErr("");
-      setItems([]);
+      return () => controller.abort();
+    }
+
+    // Keep the previous suggestions on screen until the new ones arrive.
+    setBusy(true);
+    timerRef.current = setTimeout(async () => {
+      setErr("");
 
       try {
         const mapped = await fetchPhotonSuggestions(q, biasCenter, controller.signal);
@@ -89,7 +102,7 @@ export default function PlacesAutocompleteInput({
       } finally {
         if (seq === reqSeq.current && !controller.signal.aborted) setBusy(false);
       }
-    }, 250);
+    }, DEBOUNCE_MS);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -99,6 +112,7 @@ export default function PlacesAutocompleteInput({
 
   function pick(item) {
     if (!item) return;
+    pickedRef.current = String(item.description || "").trim();
     onSelect?.(item);
     setOpen(false);
     setActiveIdx(-1);

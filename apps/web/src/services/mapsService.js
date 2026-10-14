@@ -162,25 +162,36 @@ export async function resolvePlaceLatLng({
   };
 }
 
+function toSuggestions(places) {
+  return places.map((place) => {
+    const description = place.address || place.name;
+    const main = place.name || description;
+    return {
+      placeId: place.id,
+      description,
+      main,
+      secondary: description.startsWith(main)
+        ? description.slice(main.length).replace(/^,\s*/, "")
+        : description,
+      position: place.position,
+    };
+  });
+}
+
 export async function placesAutocomplete({ query, center = null, limit = 8, signal } = {}) {
   const result = await placesTextSearch({ query, center, maxResultCount: limit, signal });
   if (!result.ok) return { ok: false, reason: result.reason };
-  return {
-    ok: true,
-    suggestions: result.places.map((place) => {
-      const description = place.address || place.name;
-      const main = place.name || description;
-      return {
-        placeId: place.id,
-        description,
-        main,
-        secondary: description.startsWith(main)
-          ? description.slice(main.length).replace(/^,\s*/, "")
-          : description,
-        position: place.position,
-      };
-    }),
-  };
+  return { ok: true, suggestions: toSuggestions(result.places) };
+}
+
+/** Cached suggestions for a query, or null. Synchronous so repeat queries skip the debounce. */
+export function peekPlacesAutocomplete({ query, center = null, limit = 8 } = {}) {
+  const cleanQuery = String(query || "").trim();
+  if (!cleanQuery) return null;
+  const key = cacheKey(cleanQuery, normalizeCenter(center), limit, 50000, false);
+  const cached = placeCache.get(key);
+  if (!cached || Date.now() - cached.timestamp >= CACHE_TTL_MS) return null;
+  return toSuggestions(cached.places);
 }
 
 export function clearPlacesCache() {

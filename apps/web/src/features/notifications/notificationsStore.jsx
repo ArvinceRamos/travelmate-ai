@@ -17,6 +17,14 @@ import {
 
 import { db } from "../../services/firebase";
 import { useAuth } from "../../hooks/useAuth";
+import {
+  addDays,
+  extractTimedItemsByDay,
+  parseISODateToLocalMidnight,
+  parseTimeOnDateMs,
+} from "./timedItems.js";
+
+export { extractTimedItemsByDay };
 
 /*
   TravelMate Notifications
@@ -84,39 +92,6 @@ function isPastTrip(tripEndISO) {
   return endMs < today.getTime();
 }
 
-function parseISODateToLocalMidnight(iso) {
-  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function addDays(dateObj, days) {
-  const d = new Date(dateObj);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function parseTimeOnDateMs(hhmm, baseDate) {
-  const raw = (hhmm || "").trim();
-  if (!raw) return null;
-
-  const m = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
-  if (!m) return null;
-
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const ap = (m[3] || "").toUpperCase();
-
-  if (ap === "PM" && h < 12) h += 12;
-  if (ap === "AM" && h === 12) h = 0;
-
-  const d = baseDate ? new Date(baseDate) : new Date();
-  d.setHours(h, min, 0, 0);
-  return d.getTime();
-}
-
 function localDateISOFromMs(ms) {
   try {
     const d = new Date(ms);
@@ -127,85 +102,6 @@ function localDateISOFromMs(ms) {
   } catch {
     return null;
   }
-}
-
-function cleanLine(rawLine) {
-  return String(rawLine || "")
-    .replace(/^\s*[-*•]\s+/, "")
-    .replace(/\*\*/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// More tolerant: allow "-" or "–" or "to"
-function parseTimeRangeLine(line) {
-  const s = cleanLine(line);
-  if (!s) return null;
-
-  const m = s.match(
-    /^(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s*(?:–|-|to)\s*(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s*(?:[:\-–—]\s*)?(.*)$/i
-  );
-  if (!m) return null;
-
-  const start = String(m[1] || "").trim();
-  const end = String(m[2] || "").trim();
-  const label = String(m[3] || "").trim();
-  if (!label) return null;
-
-  return { start, end, label };
-}
-
-function extractTimedItems(text = "", baseDate = null) {
-  const lines = (text || "").split("\n");
-  const items = [];
-
-  for (const rawLine of lines) {
-    const parsed = parseTimeRangeLine(rawLine);
-    if (!parsed) continue;
-
-    const whenMs = parseTimeOnDateMs(parsed.start, baseDate);
-    if (!whenMs) continue;
-
-    items.push({ whenMs, timeLabel: parsed.start, endLabel: parsed.end, label: parsed.label });
-  }
-
-  items.sort((a, b) => a.whenMs - b.whenMs);
-  return items;
-}
-
-export function extractTimedItemsByDay(text = "", tripStartISO = null) {
-  const src = String(text || "");
-  const base = tripStartISO ? parseISODateToLocalMidnight(tripStartISO) : null;
-  if (!base) return extractTimedItems(src, null);
-
-  const lines = src.split("\n");
-  const sections = [];
-  let current = { dayNum: 1, lines: [] };
-
-  for (const line of lines) {
-    const m = line.match(/^\s*(?:#{1,6}\s*)?Day\s*(\d+)\b/i);
-    if (m) {
-      if (current.lines.length) sections.push(current);
-      current = { dayNum: Math.max(1, Number(m[1] || 1)), lines: [] };
-      continue;
-    }
-    current.lines.push(line);
-  }
-  if (current.lines.length) sections.push(current);
-
-  if (!sections.length) sections.push({ dayNum: 1, lines });
-
-  const out = [];
-  for (const sec of sections) {
-    const dayIndex = Math.max(0, (sec.dayNum || 1) - 1);
-    const dayDate = addDays(base, dayIndex);
-    const dayText = sec.lines.join("\n");
-    const items = extractTimedItems(dayText, dayDate);
-    out.push(...items.map((i) => ({ ...i, dayNum: sec.dayNum })));
-  }
-
-  out.sort((a, b) => a.whenMs - b.whenMs);
-  return out;
 }
 
 function extractPeriodItems(dayText = "", baseDate = null, periodTimes = null) {

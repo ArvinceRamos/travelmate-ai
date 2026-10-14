@@ -7,7 +7,8 @@
     "build:sw": "node scripts/build-sw.mjs",
     "dev": "npm run build:sw && vite",
     "build": "npm run build:sw && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test test/"
   },
   "dependencies": {
     "dompurify": "^3.4.1",

@@ -330,6 +330,15 @@ export function ItineraryProvider({ children }) {
     );
   }, []);
 
+  // Map cache only: leaves updatedAt alone so geocoding doesn't reorder the list.
+  const saveMapGeo = useCallback(async (id, mapGeo) => {
+    if (!id || !mapGeo) return;
+    setItems((prev) =>
+      (Array.isArray(prev) ? prev : []).map((x) => (x.id === id ? { ...x, mapGeo } : x))
+    );
+    await updateDoc(doc(db, "itineraries", id), { mapGeo });
+  }, []);
+
   const toggleDone = useCallback(
     async (id) => {
       const row = (Array.isArray(items) ? items : []).find((x) => x.id === id);
@@ -350,6 +359,7 @@ export function ItineraryProvider({ children }) {
       savePending,
       deleteItinerary,
       updateItinerary,
+      saveMapGeo,
       toggleDone,
 
       // back-compat aliases
@@ -364,6 +374,7 @@ export function ItineraryProvider({ children }) {
       savePending,
       deleteItinerary,
       updateItinerary,
+      saveMapGeo,
       toggleDone,
     ]
   );

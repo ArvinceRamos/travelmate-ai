@@ -7,6 +7,20 @@ const REGION = "asia-southeast1";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        // Vendor chunks keep every file under 500 KB and cache across deploys.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]@firebase[\\/]firestore[\\/]/.test(id)) return "firebase-firestore";
+          if (/[\\/]@?firebase[\\/]/.test(id)) return "firebase";
+          if (/[\\/](react|react-dom|react-router|react-router-dom|@remix-run|scheduler)[\\/]/.test(id)) return "react";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       /**
