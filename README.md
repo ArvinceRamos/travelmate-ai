@@ -103,19 +103,14 @@ The current backend remains a Firebase Function for local emulation. Moving it t
 
 This path costs $0: Vercel Hobby (two projects), Firebase Spark (Auth, Firestore, FCM only), Gemini as the primary AI with Groq as the fallback, and a free external cron for reminders. Vercel Hobby is for non-commercial use.
 
-1. **Firebase (Spark plan).** Use your own project. In Authentication, enable Email/Password and Google, and add your `*.vercel.app` web domain under Settings > Authorized domains. Deploy rules with `firebase deploy --only firestore:rules`. Create a service-account key (Project settings > Service accounts > Generate new private key). Do not enable Blaze; Cloud Functions, Scheduler and Storage are not used, and `VITE_ENABLE_AVATAR_UPLOADS` stays `false`.
-2. **AI keys.** Create a Gemini key in [Google AI Studio](https://aistudio.google.com/app/apikey) and a Groq key in the [Groq console](https://console.groq.com/keys). Both free tiers need no card and have rate limits.
-3. **API project (`apps/functions`).** Import the GitHub repo into Vercel with Root Directory `apps/functions`. `vercel.json` routes every path to `api/index.js` (the Express app, max 120 s). Environment variables:
-   - `AI_PROVIDER=gemini`, `GEMINI_API_KEY`
-   - `AI_FALLBACK_PROVIDER=groq`, `GROQ_API_KEY`
-   - `FIREBASE_SERVICE_ACCOUNT` (the key JSON on a single line)
-   - `CRON_SECRET` (long random string)
-   - `CORS_ALLOWED_ORIGINS` (the web project's URL)
-   - `NOMINATIM_USER_AGENT="TravelMate-Capstone/1.0 (you@example.com)"`
+**For a step-by-step walkthrough with all the details, see [`docs/DEPLOY_VERCEL_MANUAL_CHECKLIST.md`](docs/DEPLOY_VERCEL_MANUAL_CHECKLIST.md).**
 
-   Check `https://<api>.vercel.app/health` after deploying.
-4. **Web project (`apps/web`).** Import the same repo again with Root Directory `apps/web` (Vite; `vercel.json` already has the SPA rewrite). Environment variables: the six `VITE_FIREBASE_*` values, `VITE_FIREBASE_VAPID_KEY`, `VITE_USE_FIREBASE_EMULATORS=false`, `VITE_API_BASE_URL=https://<api>.vercel.app`, `VITE_ENABLE_AVATAR_UPLOADS=false`.
-5. **Reminders.** In [cron-job.org](https://cron-job.org) create a job that sends `POST https://<api>.vercel.app/v1/cron/reminders` every 5 minutes with the header `Authorization: Bearer <CRON_SECRET>`. It should answer 200; without the header it answers 401.
+Quick summary of the process:
+1. Set up **Firebase (Spark plan):** create a project, enable Email/Password and Google auth, deploy Firestore rules, create a service-account key.
+2. Generate **AI keys:** Gemini (free tier, no card) and Groq (free tier, no card).
+3. Create **API project** on Vercel with root `apps/functions`. Set environment variables for AI keys, Firebase credentials, and cron secret.
+4. Create **Web project** on Vercel with root `apps/web`. Set Firebase config and API URL.
+5. Set up **cron reminders** with [cron-job.org](https://cron-job.org) to call the API every 5 minutes.
 
 Never put the service-account JSON or AI keys in `VITE_*` variables or commit them. The in-memory rate limiter is per serverless instance, which is fine for a demo.
 
