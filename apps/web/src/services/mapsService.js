@@ -174,11 +174,76 @@ function toSuggestions(places) {
         ? description.slice(main.length).replace(/^,\s*/, "")
         : description,
       position: place.position,
+      provider: place.provider || "photon",
     };
   });
 }
 
+const GEOAPIFY_KEY = String(import.meta.env.VITE_GEOAPIFY_KEY || "").trim();
+const GEOAPIFY_TIMEOUT_MS = 3000;
+
+function geoapifyCacheKey(query, center, limit) {
+  return `geoapify|${cacheKey(query, center, limit, 0, false)}`;
+}
+
+// Geoapify answers autocomplete in well under a second; public Photon often takes 8+ s.
+async function geoapifyAutocomplete({ query, center, limit, signal }) {
+  const params = new URLSearchParams({
+    text: query,
+    format: "json",
+    lang: "en",
+    limit: String(limit),
+    apiKey: GEOAPIFY_KEY,
+  });
+  if (center) params.set("bias", `proximity:${center.lng.toFixed(2)},${center.lat.toFixed(2)}`);
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(abort, GEOAPIFY_TIMEOUT_MS);
+  try {
+    const response = await fetch(`https://api.geoapify.com/v1/geocode/autocomplete?${params}`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return (Array.isArray(data?.results) ? data.results : [])
+      .map((r) => {
+        const lat = Number(r?.lat);
+        const lng = Number(r?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const name = String(r.name || r.address_line1 || r.formatted || "Unnamed place").trim();
+        return {
+          id: String(r.place_id || `${lat},${lng}`),
+          name,
+          address: String(r.formatted || name).trim(),
+          rating: null,
+          openNow: null,
+          position: { lat, lng },
+          provider: "geoapify",
+        };
+      })
+      .filter(Boolean);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
 export async function placesAutocomplete({ query, center = null, limit = 8, signal } = {}) {
+  const cleanQuery = String(query || "").trim();
+  const normalizedCenter = normalizeCenter(center);
+  if (GEOAPIFY_KEY && cleanQuery) {
+    const places = await geoapifyAutocomplete({ query: cleanQuery, center: normalizedCenter, limit, signal });
+    if (signal?.aborted) return { ok: false, reason: "aborted" };
+    if (places) {
+      remember(geoapifyCacheKey(cleanQuery, normalizedCenter, limit), places);
+      return { ok: true, suggestions: toSuggestions(places) };
+    }
+  }
   const result = await placesTextSearch({ query, center, maxResultCount: limit, signal });
   if (!result.ok) return { ok: false, reason: result.reason };
   return { ok: true, suggestions: toSuggestions(result.places) };
@@ -188,10 +253,14 @@ export async function placesAutocomplete({ query, center = null, limit = 8, sign
 export function peekPlacesAutocomplete({ query, center = null, limit = 8 } = {}) {
   const cleanQuery = String(query || "").trim();
   if (!cleanQuery) return null;
-  const key = cacheKey(cleanQuery, normalizeCenter(center), limit, 50000, false);
-  const cached = placeCache.get(key);
-  if (!cached || Date.now() - cached.timestamp >= CACHE_TTL_MS) return null;
-  return toSuggestions(cached.places);
+  const normalizedCenter = normalizeCenter(center);
+  const keys = [cacheKey(cleanQuery, normalizedCenter, limit, 50000, false)];
+  if (GEOAPIFY_KEY) keys.unshift(geoapifyCacheKey(cleanQuery, normalizedCenter, limit));
+  for (const key of keys) {
+    const cached = placeCache.get(key);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) return toSuggestions(cached.places);
+  }
+  return null;
 }
 
 export function clearPlacesCache() {

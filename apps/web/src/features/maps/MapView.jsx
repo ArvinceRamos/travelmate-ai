@@ -102,7 +102,12 @@ export default function MapView({
         <Polyline
           key={route.id || `route-${index}`}
           positions={route.positions}
-          pathOptions={{ color: route.color || "#087f8c", weight: 5, opacity: 0.85 }}
+          pathOptions={{
+            color: route.color || "#087f8c",
+            weight: route.dashed ? 3 : 5,
+            opacity: 0.85,
+            dashArray: route.dashed ? "8 10" : null,
+          }}
         />
       ))}
 

@@ -286,6 +286,19 @@
   font-weight: 500;
 }
 
+.tm-autoFooter {
+  padding: 6px 12px 4px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.tm-autoFooter a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 /* =========================
    Panels (itineraries, directions)
 ========================= */

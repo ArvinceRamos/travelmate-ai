@@ -174,10 +174,39 @@ function optionalCoord(value, max) {
   return Number.isFinite(n) && Math.abs(n) <= max ? n : null;
 }
 
-/** One-shot geocode of a named stop: search a box around the trip base first, then anywhere. */
-async function geocodePlace(query, { lat, lon, limit = 5 } = {}) {
+function words(text) {
+  return String(text || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().match(/[a-z0-9]+/g) || [];
+}
+
+const GENERIC_PLACE_WORDS = new Set([
+  "the", "and", "public", "market", "beach", "resort", "hotel", "inn", "city", "town", "park", "island",
+  "restaurant", "cafe", "bar", "street", "road", "boulevard", "mall", "church", "falls", "bay", "port", "pier",
+  "terminal", "station", "airport", "center", "centre", "plaza", "proper",
+]);
+
+// "Kermit Siargao" with base "Siargao, Philippines" -> "Kermit": Nominatim finds nothing
+// when a stop name carries the trip area's words. Not when only generic words would
+// remain ("General Luna Public Market" -> "Public Market" matches any market nearby).
+function stripBaseWords(query, base) {
+  const drop = new Set(words(base).filter((w) => w.length > 2));
+  if (!drop.size) return "";
+  const kept = String(query || "").trim().split(/\s+/).filter((part) => {
+    const w = words(part);
+    return !w.length || !w.every((x) => drop.has(x));
+  });
+  const text = kept.join(" ").replace(/^[\s,.-]+|[\s,.-]+$/g, "");
+  const distinctive = words(text).some((w) => w.length > 1 && !GENERIC_PLACE_WORDS.has(w));
+  return distinctive && text.toLowerCase() !== String(query || "").trim().toLowerCase() ? text : "";
+}
+
+/**
+ * One-shot geocode of a named stop, at most 3 Nominatim calls: a box around the
+ * trip base, the same box without the base's words, then anywhere.
+ */
+async function geocodePlace(query, { lat, lon, limit = 5, base = "" } = {}) {
   const latitude = optionalCoord(lat, 90);
   const longitude = optionalCoord(lon, 180);
+  const stripped = stripBaseWords(query, String(base || "").slice(0, 200));
   if (latitude !== null && longitude !== null) {
     const viewbox = [
       longitude - GEOCODE_BIAS_DEG,
@@ -187,8 +216,15 @@ async function geocodePlace(query, { lat, lon, limit = 5 } = {}) {
     ].map((n) => n.toFixed(3)).join(",");
     const near = await nominatimSearch(query, limit, { viewbox });
     if (near.length) return near;
+    if (stripped) {
+      const nearStripped = await nominatimSearch(stripped, limit, { viewbox });
+      if (nearStripped.length) return nearStripped;
+    }
+    return nominatimSearch(query, limit);
   }
-  return nominatimSearch(query, limit);
+  const anywhere = await nominatimSearch(query, limit);
+  if (anywhere.length || !stripped) return anywhere;
+  return nominatimSearch(stripped, limit);
 }
 
 async function reverseGeocode(lat, lon) {

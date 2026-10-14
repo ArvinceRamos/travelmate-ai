@@ -99,3 +99,40 @@ test("GET /v1/places/geocode returns places and rejects bad queries", async () =
     mock.restore();
   }
 });
+
+test("geocodePlace retries without the trip base's words, at most 3 calls", async () => {
+  const mock = mockNominatim((url) =>
+    url.searchParams.get("q") === "Kermit" && url.searchParams.has("viewbox") ? [row("Kermit", 9.788, 126.16)] : []
+  );
+  try {
+    const places = await providers.geocodePlace("Kermit Siargao", { lat: 9.79, lon: 126.16, base: "Siargao, Philippines" });
+    assert.deepEqual(mock.urls.map((u) => u.searchParams.get("q")), ["Kermit Siargao", "Kermit"]);
+    assert.equal(places[0].name, "Kermit");
+
+    mock.urls.length = 0;
+    const none = await providers.geocodePlace("Shaka Siargao", { lat: 9.79, lon: 126.16, base: "Siargao" });
+    assert.deepEqual(
+      mock.urls.map((u) => [u.searchParams.get("q"), u.searchParams.has("viewbox")]),
+      [["Shaka Siargao", true], ["Shaka", true], ["Shaka Siargao", false]]
+    );
+    assert.deepEqual(none, []);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("geocodePlace does not strip when nothing is left or no base is given", async () => {
+  const mock = mockNominatim(() => []);
+  try {
+    await providers.geocodePlace("Siargao", { lat: 9.79, lon: 126.16, base: "Siargao Island" });
+    await providers.geocodePlace("Cloud 9 Siargao", { lat: 9.79, lon: 126.16 });
+    await providers.geocodePlace("General Luna Public Market", { lat: 9.79, lon: 126.16, base: "General Luna, Siargao" });
+    assert.deepEqual(mock.urls.map((u) => u.searchParams.get("q")), [
+      "Siargao", "Siargao",
+      "Cloud 9 Siargao", "Cloud 9 Siargao",
+      "General Luna Public Market", "General Luna Public Market",
+    ]);
+  } finally {
+    mock.restore();
+  }
+});

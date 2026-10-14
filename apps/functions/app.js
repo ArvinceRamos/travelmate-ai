@@ -942,7 +942,7 @@ app.get("/v1/places/search", async (req, res) => {
 app.get("/v1/places/geocode", geocodeIpRateLimit, async (req, res) => {
   try {
     const places = await require("./src/services/freeProviders.service").geocodePlace(req.query.q, {
-      lat: req.query.lat, lon: req.query.lon, limit: req.query.limit,
+      lat: req.query.lat, lon: req.query.lon, limit: req.query.limit, base: req.query.base,
     });
     return res.json({ ok: true, data: { places } });
   } catch (e) {

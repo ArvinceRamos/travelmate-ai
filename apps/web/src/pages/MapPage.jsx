@@ -4,15 +4,19 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useComposerDraft } from "../store/composerDraftContext";
 import { useMaps } from "../features/maps/mapsStore.jsx";
 import { useItinerary } from "../features/itinerary/itineraryStore.jsx";
+import { useAuth } from "../hooks/useAuth";
 import PlacesAutocompleteInput from "../features/maps/PlacesAutocompleteInput.jsx";
+import { tripPlaceRows } from "../features/maps/localSuggestions.js";
 import MapView from "../features/maps/MapView.jsx";
 import Icon from "../components/common/Icon.jsx";
 import { itineraryStops, placeKey, stopDays } from "../utils/itineraryParse.js";
 import {
   buildMapGeo,
   distanceKm,
+  isAirportQuery,
   readMapGeo,
   resolveTripPlaces,
+  routeSegments,
   stopQueries,
   tripOutlierKeys,
 } from "../features/maps/tripGeo.js";
@@ -40,13 +44,14 @@ async function photonLookup(query, options = {}) {
 
 // Itinerary stops go through the backend's Nominatim queue (~1 s each); public Photon
 // can take 10+ s per lookup. Photon stays as the fallback when the backend fails or finds nothing.
-async function geocodeTripStop(query, { center, signal } = {}) {
+async function geocodeTripStop(query, { center, base, signal } = {}) {
   try {
     const params = new URLSearchParams({ q: query, limit: "5" });
     if (center) {
       params.set("lat", String(center.lat));
       params.set("lon", String(center.lng));
     }
+    if (base) params.set("base", base);
     const result = await getApiJson(`/v1/places/geocode?${params}`, { signal });
     const hits = (result?.data?.places || [])
       .filter((p) => Number.isFinite(p?.location?.lat) && Number.isFinite(p?.location?.lng))
@@ -278,6 +283,9 @@ export default function MapPage() {
   const { setDraft } = useComposerDraft();
   const { mapIntent, clearIntent } = useMaps();
   const { items: itineraryItems, saveMapGeo } = useItinerary();
+  const { user } = useAuth();
+  const recentsKey = user?.uid || "";
+  const tripPlaces = useMemo(() => tripPlaceRows(itineraryItems), [itineraryItems]);
 
   const [search, setSearch] = useState("");
   const [markers, setMarkers] = useState([]);
@@ -285,6 +293,7 @@ export default function MapPage() {
   const [error, setError] = useState("");
   const [mapCenter, setMapCenter] = useState(DEFAULT_MAP_CENTER);
   const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM);
+  const [biasCenter, setBiasCenter] = useState(null);
 
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
@@ -328,6 +337,25 @@ export default function MapPage() {
     mapRef.current = map;
     setMapReady(true);
   }, []);
+
+  // Search suggestions are biased to the visible area; rounded so the suggestion cache still hits.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    const update = () => {
+      if (map.getZoom() < 5) {
+        setBiasCenter(null);
+        return;
+      }
+      const c = map.getCenter();
+      const lat = Math.round(c.lat * 100) / 100;
+      const lng = Math.round(c.lng * 100) / 100;
+      setBiasCenter((prev) => (prev?.lat === lat && prev?.lng === lng ? prev : { lat, lng }));
+    };
+    update();
+    map.on("moveend", update);
+    return () => map.off("moveend", update);
+  }, [mapReady]);
 
   const activePlaceText = useMemo(() => {
     if (!activeMarker) return "";
@@ -403,8 +431,13 @@ export default function MapPage() {
     const locate = (query) => {
       const k = placeKey(query);
       const p = tripGeo.places[k];
-      if (!p) return { status: liveGeoForTrip?.done ? "missing" : "pending" };
-      if (p.missing || outliers.has(k)) return { status: "missing" };
+      if (!p) {
+        return liveGeoForTrip?.done
+          ? { status: "missing", missingReason: "lookup failed, reopen the trip to retry" }
+          : { status: "pending" };
+      }
+      if (p.missing) return { status: "missing", missingReason: "no match in map data" };
+      if (outliers.has(k)) return { status: "missing", missingReason: "only matches far from this trip" };
       return { status: "found", position: { lat: p.lat, lng: p.lng }, matchedName: p.name || "" };
     };
     const dayNum = dayFilter === "all" ? null : Number(dayFilter);
@@ -447,12 +480,16 @@ export default function MapPage() {
     for (const s of viewStops) {
       if (s.status !== "found") continue;
       const prev = pts[pts.length - 1];
-      if (s.fromPosition && (!prev || distanceKm(prev, s.fromPosition) > 2)) pts.push(s.fromPosition);
-      pts.push(s.position);
+      if (s.fromPosition && (!prev || distanceKm(prev, s.fromPosition) > 2)) {
+        pts.push({ ...s.fromPosition, airport: isAirportQuery(s.fromQuery) });
+      }
+      pts.push({ ...s.position, airport: isAirportQuery(s.query) });
     }
-    return pts.slice(0, 20);
+    return pts.slice(0, 40);
   }, [viewStops]);
-  const itineraryRouteKey = itineraryRouteCoords.map((p) => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}`).join(";");
+  const itineraryRouteKey = itineraryRouteCoords
+    .map((p) => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}${p.airport ? "a" : ""}`)
+    .join(";");
 
   const clearRoute = useCallback(() => {
     directionsRequestIdRef.current += 1;
@@ -588,14 +625,9 @@ export default function MapPage() {
 
       setError("");
       setItineraryPanelOpen(false);
-      const searchCenter =
-        Number(mapCenter.lat) === DEFAULT_MAP_CENTER.lat &&
-        Number(mapCenter.lng) === DEFAULT_MAP_CENTER.lng
-          ? undefined
-          : mapCenter;
 
       try {
-        const mapped = await photonSearch(q, { center: searchCenter, limit: 10 });
+        const mapped = await photonSearch(q, { center: biasCenter || undefined, limit: 10 });
         if (!mapped.length) {
           setError("No results found.");
           setMarkers([]);
@@ -612,7 +644,7 @@ export default function MapPage() {
         setError(error?.message || "Place search is temporarily unavailable.");
       }
     },
-    [search, mapCenter, focusMapOnPoint]
+    [search, biasCenter, focusMapOnPoint]
   );
 
   const showSearchResult = useCallback(
@@ -1107,18 +1139,31 @@ export default function MapPage() {
     const requestId = itineraryRouteRequestIdRef.current + 1;
     itineraryRouteRequestIdRef.current = requestId;
 
-    requestOsrmRoute(itineraryRouteCoords, "DRIVING")
-      .then((route) => {
-        if (requestId !== itineraryRouteRequestIdRef.current) return;
-        itineraryRouteCacheRef.current.set(itineraryRouteKey, route);
-        setItineraryDirections(route);
-        setShowItineraryRenderer(true);
-      })
-      .catch((err) => {
-        if (requestId !== itineraryRouteRequestIdRef.current) return;
+    // Flights and sea crossings have no road: draw them straight and dashed, route only the drivable runs.
+    const straight = (points) => points.map((p) => [p.lat, p.lng]);
+    const segments = routeSegments(itineraryRouteCoords);
+    Promise.all(
+      segments.map((seg) =>
+        seg.type === "jump"
+          ? { positions: straight(seg.points), dashed: true }
+          : requestOsrmRoute(seg.points, "DRIVING")
+              .then((route) => ({ positions: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]) }))
+              .catch((err) => ({ positions: straight(seg.points), dashed: true, error: err }))
+      )
+    ).then((paths) => {
+      if (requestId !== itineraryRouteRequestIdRef.current) return;
+      const failed = paths.filter((p) => p.error);
+      if (failed.length && failed.length === paths.length) {
         clearItineraryRoute(false);
-        setItineraryError(err?.message || "Couldn’t draw the itinerary route. Please try again.");
-      });
+        setItineraryError(failed[0].error?.message || "Couldn’t draw the itinerary route. Please try again.");
+        return;
+      }
+      const route = { paths };
+      if (!failed.length) itineraryRouteCacheRef.current.set(itineraryRouteKey, route);
+      else setItineraryError("Some legs have no road route; they’re shown as dashed lines.");
+      setItineraryDirections(route);
+      setShowItineraryRenderer(true);
+    });
 
     return () => {
       itineraryRouteRequestIdRef.current += 1;
@@ -1172,6 +1217,10 @@ export default function MapPage() {
                     setSearch(it.description);
                     showSearchResult(it);
                   }}
+                  onSubmit={handleSearch}
+                  biasCenter={biasCenter}
+                  recentsKey={recentsKey}
+                  localPlaces={tripPlaces}
                   placeholder="Search a city, landmark, or place…"
                 />
 
@@ -1365,7 +1414,7 @@ export default function MapPage() {
                                             <span className="tm-itMapStop__meta">
                                               {stop.end ? `${stop.start}–${stop.end}` : stop.start}
                                               {stop.isTransfer ? " · Transfer" : ""}
-                                              {stop.status === "missing" ? " · Not found on map" : ""}
+                                              {stop.status === "missing" ? ` · Not found on map (${stop.missingReason || "no match"})` : ""}
                                               {stop.status === "pending" ? " · Locating…" : ""}
                                             </span>
                                           </span>
@@ -1463,6 +1512,9 @@ export default function MapPage() {
                             setOriginCoords(it.position || null);
                             setClickTarget("destination");
                           }}
+                          biasCenter={biasCenter}
+                          recentsKey={recentsKey}
+                          localPlaces={tripPlaces}
                           placeholder="Choose starting point, or click on the map…"
                           className="tm-routeInput"
                           dropdownClassName="tm-autoDropdown tm-autoDropdown--route"
@@ -1482,6 +1534,9 @@ export default function MapPage() {
                           value={destination}
                           onChange={updateDestination}
                           onSelect={selectDestination}
+                          biasCenter={biasCenter}
+                          recentsKey={recentsKey}
+                          localPlaces={tripPlaces}
                           placeholder="Choose destination…"
                           className="tm-routeInput"
                           dropdownClassName="tm-autoDropdown tm-autoDropdown--route"
@@ -1568,12 +1623,15 @@ export default function MapPage() {
                     color: "#0E3B2B",
                   }]
                 : []),
-              ...(!routeOpen && showItineraryLayer && itineraryRouteOn && showItineraryRenderer && itineraryDirections?.geometry?.coordinates?.length > 1
-                ? [{
-                    id: "itinerary-route",
-                    positions: itineraryDirections.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-                    color: "#00724A",
-                  }]
+              ...(!routeOpen && showItineraryLayer && itineraryRouteOn && showItineraryRenderer && itineraryDirections?.paths
+                ? itineraryDirections.paths
+                    .filter((p) => p.positions.length > 1)
+                    .map((p, i) => ({
+                      id: `itinerary-route-${i}`,
+                      positions: p.positions,
+                      color: "#00724A",
+                      dashed: p.dashed,
+                    }))
                 : []),
             ]}
             popupContent={
