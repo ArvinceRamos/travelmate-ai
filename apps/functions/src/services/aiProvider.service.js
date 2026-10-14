@@ -11,6 +11,7 @@ class AIProviderError extends Error {
 
 function providerDefaultBase(provider) {
   if (provider === "openai") return "https://api.openai.com/v1";
+  if (provider === "groq") return "https://api.groq.com/openai/v1";
   if (provider === "gemini") return "https://generativelanguage.googleapis.com/v1beta";
   return "http://127.0.0.1:11434";
 }
@@ -18,6 +19,7 @@ function providerDefaultBase(provider) {
 function providerDefaultModel(provider) {
   if (provider === "openai") return "gpt-4o-mini";
   if (provider === "gemini") return "gemini-2.5-flash";
+  if (provider === "groq") return "llama-3.3-70b-versatile";
   return "qwen2.5:7b";
 }
 
@@ -36,7 +38,9 @@ function settingsFor(provider, fallback = false) {
     ? process.env.OPENAI_API_KEY || ""
     : selected === "gemini"
       ? process.env.GEMINI_API_KEY || ""
-      : "";
+      : selected === "groq"
+        ? process.env.GROQ_API_KEY || ""
+        : "";
   return { provider: selected, baseUrl, model, apiKey };
 }
 
@@ -91,7 +95,9 @@ async function requestCompletion(settings, request) {
   }
 
   let content;
-  if (provider === "openai") {
+  if (provider === "openai" || provider === "groq") {
+    // Groq only supports json_schema on a few models, so ask for plain JSON mode there.
+    const format = provider === "groq" && responseFormat?.type === "json_schema" ? { type: "json_object" } : responseFormat;
     const data = await fetchProvider(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -103,7 +109,7 @@ async function requestCompletion(settings, request) {
         messages: request.messages,
         temperature: request.temperature,
         max_completion_tokens: request.max_completion_tokens,
-        ...(responseFormat ? { response_format: responseFormat } : {}),
+        ...(format ? { response_format: format } : {}),
       }),
     });
     content = data?.choices?.[0]?.message?.content;

@@ -142,3 +142,39 @@ test("OpenAI quota errors fall back to Gemini using backend-only provider creden
     Object.assign(process.env, old);
   }
 });
+
+test("Gemini failures fall back to Groq through its OpenAI-compatible endpoint", async () => {
+  const old = { ...process.env };
+  const originalFetch = global.fetch;
+  process.env.AI_PROVIDER = "gemini";
+  process.env.GEMINI_API_KEY = "server-gemini-test-key";
+  process.env.AI_FALLBACK_PROVIDER = "groq";
+  process.env.GROQ_API_KEY = "server-groq-test-key";
+  delete process.env.AI_BASE_URL;
+  delete process.env.AI_MODEL;
+  const seen = [];
+  global.fetch = async (url, options) => {
+    seen.push({ url: String(url), headers: options.headers, body: JSON.parse(options.body) });
+    if (String(url).includes("generativelanguage.googleapis.com")) {
+      return new Response(JSON.stringify({ error: { message: "quota" } }), { status: 429 });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await getAIClient().chat.completions.create({
+      messages: [{ role: "user", content: "Return JSON." }],
+      response_format: { type: "json_schema", json_schema: { name: "r", schema: { type: "object" } } },
+    });
+    assert.deepEqual(JSON.parse(result.choices[0].message.content), { ok: true });
+    assert.equal(seen.length, 2);
+    assert.equal(seen[1].url, "https://api.groq.com/openai/v1/chat/completions");
+    assert.equal(seen[1].headers.Authorization, "Bearer server-groq-test-key");
+    assert.equal(seen[1].body.model, "llama-3.3-70b-versatile");
+    assert.equal(seen[1].body.response_format.type, "json_object");
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of Object.keys(process.env)) if (!(key in old)) delete process.env[key];
+    Object.assign(process.env, old);
+  }
+});
